@@ -1,0 +1,11 @@
+---
+description: 服务端项目说明
+globs: 
+alwaysApply: true
+---
+
+# 服务端项目
+
+- **技术栈**：Node.js
+- **项目路径**：`E:\workspace\ipspool\server\ips_autobot_svr`
+- 对接接口、排查登录/注册/解密等问题时，可参考该目录下的服务端代码（如 `src/utils/rsa.js`、`src/middleware/decryptPassword.js`、路由与控制器等）。

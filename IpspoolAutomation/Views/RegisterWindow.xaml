@@ -1,0 +1,32 @@
+<Window x:Class="IpspoolAutomation.Views.RegisterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="注册 - Ipspool 自动化" Height="360" Width="380"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="用户名" Margin="0,0,0,4"/>
+        <TextBox Grid.Row="1" Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" Padding="6,4"/>
+        <TextBlock Grid.Row="2" Text="密码" Margin="0,0,0,4"/>
+        <PasswordBox x:Name="PasswordBox" Grid.Row="3" Margin="0,0,0,8" Padding="6,4"/>
+        <TextBlock Grid.Row="4" Text="确认密码" Margin="0,0,0,4"/>
+        <PasswordBox x:Name="ConfirmPasswordBox" Grid.Row="5" Margin="0,0,0,8" Padding="6,4"/>
+        <StackPanel Grid.Row="6" Orientation="Vertical">
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" TextWrapping="Wrap" Margin="0,0,0,4"/>
+            <TextBlock Text="{Binding SuccessMessage}" Foreground="Green" TextWrapping="Wrap"/>
+        </StackPanel>
+        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="返回登录" x:Name="BackButton" Click="BackButton_Click" Margin="0,0,8,0" Padding="12,6"/>
+            <Button Content="注册" x:Name="RegisterButton" Click="RegisterButton_Click" Padding="12,6"/>
+        </StackPanel>
+    </Grid>
+</Window>

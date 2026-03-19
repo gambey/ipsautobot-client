@@ -1,0 +1,12 @@
+---
+description: API 文档路径与对接约定
+globs: 
+alwaysApply: true
+---
+
+# API 文档与服务器对接
+
+- **API 文档路径**：`E:\workspace\ipspool\server\ips_autobot_svr\api.md`
+- 实现登录、注册、用户/管理员相关接口或任何与后端通信的功能时，**以该文档为准**：路径、方法、请求体/响应体、鉴权方式（如 bearerAuth）、错误码等。
+- 密码相关接口需使用文档中说明的 **RSA 公钥加密**（先 GET `/api/public-key` 获取公钥再加密密码后提交）。
+- 新增或修改与服务器交互的代码前，请先查阅上述 api.md 确保与当前版本一致。
