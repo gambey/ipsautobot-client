@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Windows.Input;
@@ -15,6 +16,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IAuthService _authService;
     private readonly IAppConfig _config;
     private readonly XunjieAutomationWorkflow _workflow;
+    private readonly IAutomationService _automationService;
     private CancellationTokenSource? _cts;
     private Action? _onLogout;
     private Action? _onOpenSubscribe;
@@ -33,6 +35,8 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _autoWithdrawAfterExchange;
     [ObservableProperty] private decimal _totalExchangedCoins;
     [ObservableProperty] private decimal _equivalentAmount;
+    [ObservableProperty] private string _exchangeSettingsHint = "";
+    [ObservableProperty] private bool _isExchangeSettingsHintVisible;
 
     [ObservableProperty] private string _withdrawStatusMessage = "提现流程待接入自动化步骤。";
     [ObservableProperty] private string _subscribePlan = "Monthly";
@@ -61,6 +65,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _authService = authService;
         _config = config;
+        _automationService = automationService;
         _workflow = new XunjieAutomationWorkflow(automationService, _config.XunjieHelperPath, _config.XunjieMerchantPath);
         UserInfo = _authService.UserName ?? "用户";
         MerchantPath = _config.XunjieMerchantPath;
@@ -106,8 +111,24 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
-    private void AutoExchange()
+    private async Task AutoExchange()
     {
+        ExchangeSettingsHint = "";
+
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(MerchantPath)) missing.Add("商家路径");
+        if (string.IsNullOrWhiteSpace(HelperPath)) missing.Add("辅助路径");
+        if (string.IsNullOrWhiteSpace(WithdrawName)) missing.Add("姓名");
+        if (string.IsNullOrWhiteSpace(AlipayAccount)) missing.Add("支付宝");
+        if (!IsAgentPayMode && !IsRegionalAgentMode) missing.Add("打款方式");
+        if (!IsFeeFromPoints) missing.Add("手续费扣除（从积分扣5%）");
+
+        if (missing.Count > 0)
+        {
+            ExchangeSettingsHint = $"请先在“设置”里填写：{string.Join("、", missing)}";
+            return;
+        }
+
         var amount = decimal.TryParse(ExchangeAmount, out var a) ? a : 0m;
         var points = int.TryParse(ExchangePoints, out var p) ? p : 0;
         var exchangedCoins = points / 1000m;
@@ -128,6 +149,9 @@ public sealed partial class MainViewModel : ObservableObject
             LogLines.Add($"[{now:HH:mm:ss}] 勾选了兑换后自动提现，将在兑换结束后执行提现。");
         }
         LogText = string.Join(Environment.NewLine, LogLines);
+
+        // 启动两个软件（使用设置中的路径）
+        await RunAsync(CancellationToken.None).ConfigureAwait(true);
     }
 
     [RelayCommand]
@@ -217,7 +241,8 @@ public sealed partial class MainViewModel : ObservableObject
         });
         try
         {
-            await _workflow.RunAsync(progress, _cts.Token).ConfigureAwait(true);
+            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            await workflow.RunAsync(progress, _cts.Token).ConfigureAwait(true);
         }
         catch (OperationCanceledException) { }
         finally
@@ -317,6 +342,11 @@ public sealed partial class MainViewModel : ObservableObject
     {
         TotalExchangedCoins = ExchangeRecords.Where(x => string.Equals(x.Status, "成功", StringComparison.Ordinal)).Sum(x => x.ExchangedCoins);
         EquivalentAmount = TotalExchangedCoins;
+    }
+
+    partial void OnExchangeSettingsHintChanged(string value)
+    {
+        IsExchangeSettingsHintVisible = !string.IsNullOrWhiteSpace(value);
     }
 }
 

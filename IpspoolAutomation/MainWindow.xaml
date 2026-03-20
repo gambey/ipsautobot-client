@@ -66,6 +66,7 @@
                         <Grid Visibility="{Binding IsExchangePage, Converter={StaticResource BoolToVisibilityConverter}}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
@@ -81,7 +82,16 @@
                                 <TextBlock Grid.Column="2" Text="{Binding EquivalentAmount, StringFormat=等值金额：{0:F1}}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
 
-                            <Border Grid.Row="1" BorderBrush="#FF707070" BorderThickness="1">
+                            <TextBlock Grid.Row="1"
+                                       Text="{Binding ExchangeSettingsHint}"
+                                       Foreground="#FFDC2626"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Visibility="{Binding IsExchangeSettingsHintVisible, Converter={StaticResource BoolToVisibilityConverter}}"
+                                       Margin="0,0,0,8"
+                                       TextWrapping="Wrap"/>
+
+                            <Border Grid.Row="2" BorderBrush="#FF707070" BorderThickness="1">
                                 <DataGrid ItemsSource="{Binding ExchangeRecords}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
                                           GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36">
                                     <DataGrid.Resources>
@@ -119,7 +129,7 @@
                                 </DataGrid>
                             </Border>
 
-                            <Grid Grid.Row="2" Margin="0,10,0,0">
+                            <Grid Grid.Row="3" Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
