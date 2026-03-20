@@ -1,10 +1,15 @@
 using System.Windows.Automation;
+using IpspoolAutomation.Models.Capture;
 using IpspoolAutomation.Services;
 
 namespace IpspoolAutomation.Automation;
 
 public class XunjieAutomationWorkflow
 {
+    private const double WithdrawFeeRatio = 0.05;
+    private static readonly int[] WithdrawOptions = { 1000, 500, 300, 200, 100 };
+    private const int ScoreToCoinRatio = 1000;
+
     private readonly IAutomationService _automation;
     private readonly string _helperPath;
     private readonly string _merchantPath;
@@ -14,6 +19,22 @@ public class XunjieAutomationWorkflow
         _automation = automation;
         _helperPath = helperPath;
         _merchantPath = merchantPath;
+    }
+
+    /// <summary>
+    /// 按需求文档：在可提现积分 score 下，从大到小尝试讯币档位，使剩余积分 &gt; 0 的第一档为可提现讯币数量。
+    /// </summary>
+    public static int ComputeWithdrawAmountCoins(int score)
+    {
+        foreach (var option in WithdrawOptions)
+        {
+            var coinCostPoints = option * ScoreToCoinRatio;
+            var feePoints = (int)Math.Round(option * ScoreToCoinRatio * WithdrawFeeRatio, MidpointRounding.AwayFromZero);
+            var leftScore = score - coinCostPoints - feePoints;
+            if (leftScore > 0)
+                return option;
+        }
+        return 0;
     }
 
     public async Task RunAsync(IProgress<string> progress, CancellationToken cancellationToken = default)
@@ -39,5 +60,782 @@ public class XunjieAutomationWorkflow
         await Task.Delay(500, cancellationToken).ConfigureAwait(false);
 
         progress.Report("自动化流程占位完成，请在 Workflow 中补充具体业务步骤。");
+    }
+
+    /// <summary>
+    /// 执行 Notion《自动化操作步骤》：筛选可提收益 &gt; 105000 的账号，依次「显示此号」后在商家端讯币兑现与会员中心提现。
+    /// </summary>
+    public async Task RunWithdrawAsync(
+        IProgress<string> progress,
+        string recipientPhone,
+        string withdrawName,
+        string alipayAccount,
+        IReadOnlyList<CaptureTargetItem>? captureTargets = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(recipientPhone))
+        {
+            progress.Report("未设置收款人手机号：请在「设置」中填写「收款人手机号」并保存。");
+            return;
+        }
+
+        progress.Report("正在启动/附着迅捷小辅助...");
+        var helperRoot = _automation.LaunchOrAttach(_helperPath);
+        if (helperRoot == null)
+        {
+            progress.Report("无法找到或启动迅捷小辅助窗口。");
+            return;
+        }
+        await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        progress.Report("正在读取辅助软件账号列表...");
+        var raw = HelperGridReader.CollectCandidates(helperRoot, progress);
+        var candidates = DeduplicateByUsername(raw);
+        progress.Report($"符合条件的账号数（可提收益>{HelperGridReader.MinWithdrawableScore}）：{candidates.Count}");
+        if (candidates.Count == 0)
+        {
+            progress.Report("没有需要处理的账号，结束。");
+            return;
+        }
+
+        foreach (var c in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var coins = ComputeWithdrawAmountCoins(c.Score);
+            progress.Report($"处理用户 rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，计算提现讯币={coins}。");
+            if (coins <= 0)
+            {
+                progress.Report($"计算提现讯币为 0，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                continue;
+            }
+
+            helperRoot = _automation.LaunchOrAttach(_helperPath) ?? helperRoot;
+
+            var merchantPidsBeforeShow = _automation.EnumerateMainWindowProcessIds(_merchantPath);
+            progress.Report($"「显示此号」前已存在的商家版进程数：{merchantPidsBeforeShow.Count}。");
+
+            if (!await ShowAccountOnMerchantAsync(helperRoot, c, progress, cancellationToken).ConfigureAwait(false))
+                continue;
+
+            progress.Report("正在附着当前账号对应的迅捷云商家版窗口（多实例时优先新进程，其次前台窗口）…");
+            var merchantRoot = _automation.AttachMerchantAfterShowAccount(_merchantPath, merchantPidsBeforeShow);
+            if (merchantRoot == null)
+            {
+                progress.Report("未能附着商家版窗口，跳过该用户。");
+                continue;
+            }
+            EnsureWindowNormal(merchantRoot);
+
+            var configuredDone = false;
+            if (captureTargets != null && captureTargets.Count > 0)
+            {
+                configuredDone = await ExecuteConfiguredMerchantActionsAsync(
+                    merchantRoot, captureTargets, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken).ConfigureAwait(false);
+            }
+            if (!configuredDone)
+            {
+                if (!await MerchantFillExchangeAsync(merchantRoot, coins, progress, cancellationToken).ConfigureAwait(false))
+                {
+                    progress.Report($"讯币兑现步骤未完成，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                    continue;
+                }
+                await Task.Delay(600, cancellationToken).ConfigureAwait(false);
+
+                if (!await MerchantFillMemberCenterAsync(merchantRoot, recipientPhone, coins, progress, cancellationToken).ConfigureAwait(false))
+                {
+                    progress.Report($"会员中心提现步骤未完成，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                    continue;
+                }
+            }
+            await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+            var minimized = _automation.MinimizeWindow(merchantRoot);
+            progress.Report(minimized
+                ? $"已最小化商家窗口（rowID={c.RowId}），继续下一账号。"
+                : $"尝试最小化商家窗口失败（rowID={c.RowId}），窗口可能被目标程序拦截。");
+            await Task.Delay(300, cancellationToken).ConfigureAwait(false);
+        }
+
+        progress.Report("自动提现流程全部结束。");
+    }
+
+    private async Task<bool> ExecuteConfiguredMerchantActionsAsync(
+        AutomationElement merchantRoot,
+        IReadOnlyList<CaptureTargetItem> captureTargets,
+        int withdrawAmountCoins,
+        string recipientPhone,
+        string withdrawName,
+        string alipayAccount,
+        IProgress<string> progress,
+        CancellationToken ct)
+    {
+        var steps = captureTargets.OrderBy(x => x.TargetID).ToList();
+        if (steps.Count == 0)
+            return false;
+
+        progress.Report($"检测到捕捉设置，共 {steps.Count} 步，按配置执行商家操作。");
+        foreach (var step in steps)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!TryResolveStepTarget(merchantRoot, step, out var target, out var anchor))
+            {
+                progress.Report($"配置步骤#{step.TargetID} 未找到目标控件（targetType={step.TargetType}, targetText={step.TargetText}）。");
+                return false;
+            }
+
+            if (!ExecuteStepAction(step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, progress))
+            {
+                progress.Report($"配置步骤#{step.TargetID} 执行失败（action={step.Action}）。");
+                return false;
+            }
+            await Task.Delay(180, ct).ConfigureAwait(false);
+        }
+
+        progress.Report("已按捕捉设置完成商家窗口操作。");
+        return true;
+    }
+
+    private bool TryResolveStepTarget(
+        AutomationElement merchantRoot,
+        CaptureTargetItem step,
+        out AutomationElement? target,
+        out AutomationElement? anchor)
+    {
+        target = null;
+        anchor = null;
+
+        if (string.Equals(step.TargetType, "window", StringComparison.OrdinalIgnoreCase))
+        {
+            target = merchantRoot;
+            anchor = merchantRoot;
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(step.AnchorType))
+            return _automation.TryResolveTarget(step, merchantRoot, out target);
+
+        anchor = FindByTypeAndText(merchantRoot, step.AnchorType ?? "", step.AnchorText ?? "");
+        if (anchor == null)
+            return false;
+
+        return _automation.TryResolveTarget(step, merchantRoot, out target);
+    }
+
+    private bool ExecuteStepAction(
+        CaptureTargetItem step,
+        AutomationElement? target,
+        AutomationElement? anchor,
+        int withdrawAmountCoins,
+        string recipientPhone,
+        string withdrawName,
+        string alipayAccount,
+        IProgress<string> progress)
+    {
+        var action = NormalizeAction(step.Action);
+        if (string.Equals(step.TargetType, "window", StringComparison.OrdinalIgnoreCase))
+        {
+            var (wx, wy) = GetWindowOffsetPoint(target, step.OffsetX, step.OffsetY);
+            if (wx <= 0 || wy <= 0)
+                return false;
+            _automation.LeftClickAt(wx, wy);
+            progress.Report($"步骤#{step.TargetID} window 偏移动作完成，坐标=({wx},{wy})。");
+            if (action != "moveTo_click_input")
+                return true;
+
+            var inputValueByWindow = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount);
+            if (string.IsNullOrEmpty(inputValueByWindow))
+                return false;
+            var inputTarget = ResolveInputTargetAtPoint(target, wx, wy);
+            if (inputTarget == null)
+                return false;
+            _automation.SetEditValue(inputTarget, inputValueByWindow);
+            progress.Report($"步骤#{step.TargetID} window 输入完成，值={inputValueByWindow}。");
+            return true;
+        }
+
+        if (action == "click")
+        {
+            if (target == null)
+                return false;
+            _automation.LeftClickElement(target);
+            progress.Report($"步骤#{step.TargetID} click 完成。");
+            return true;
+        }
+
+        if (anchor == null)
+            return false;
+        var (x, y) = GetOffsetPoint(anchor, step.OffsetX, step.OffsetY);
+        if (x <= 0 || y <= 0)
+            return false;
+        _automation.LeftClickAt(x, y);
+        progress.Report($"步骤#{step.TargetID} {action} 偏移点击完成，坐标=({x},{y})。");
+
+        if (action != "moveTo_click_input")
+            return true;
+
+        var inputValue = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount);
+        if (target == null || string.IsNullOrEmpty(inputValue))
+            return false;
+        _automation.SetEditValue(target, inputValue);
+        progress.Report($"步骤#{step.TargetID} 输入完成，值={inputValue}。");
+        return true;
+    }
+
+    private static string NormalizeAction(string? action)
+    {
+        if (string.Equals(action, "moveTo_click_input", StringComparison.OrdinalIgnoreCase))
+            return "moveTo_click_input";
+        if (string.Equals(action, "moveTo_click", StringComparison.OrdinalIgnoreCase))
+            return "moveTo_click";
+        return "click";
+    }
+
+    private static string ResolveInputValue(
+        CaptureTargetItem step,
+        int withdrawAmountCoins,
+        string recipientPhone,
+        string withdrawName,
+        string alipayAccount)
+    {
+        var raw = (step.InputValue ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+            raw = (step.TargetText ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+            return "";
+
+        if (raw.StartsWith("{$", StringComparison.Ordinal) && raw.EndsWith("}", StringComparison.Ordinal) && raw.Length > 3)
+        {
+            var varName = raw.Substring(2, raw.Length - 3).Trim();
+            if (string.Equals(varName, "coins", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(varName, "withdrawCoins", StringComparison.OrdinalIgnoreCase))
+                return withdrawAmountCoins.ToString();
+            if (string.Equals(varName, "phone", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(varName, "recipientPhone", StringComparison.OrdinalIgnoreCase))
+                return recipientPhone;
+            if (string.Equals(varName, "WithdrawName", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(varName, "Name", StringComparison.OrdinalIgnoreCase))
+                return withdrawName;
+            if (string.Equals(varName, "AlipayAccount", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(varName, "Alipay", StringComparison.OrdinalIgnoreCase))
+                return alipayAccount;
+            return "";
+        }
+
+        if (!raw.Contains('{'))
+            return raw;
+
+        var key = $"{step.TargetText} {step.AnchorText}";
+        if (key.Contains("手机号", StringComparison.Ordinal))
+            return recipientPhone;
+        if (key.Contains("兑换", StringComparison.Ordinal) || key.Contains("讯币", StringComparison.Ordinal))
+            return withdrawAmountCoins.ToString();
+        return raw;
+    }
+
+    private AutomationElement? FindByTypeAndText(AutomationElement root, string typeText, string text)
+    {
+        if (!TryMapControlType(typeText, out var ct))
+            return null;
+        if (string.IsNullOrWhiteSpace(text))
+            return _automation.FindChild(root, ct);
+        return _automation.FindDescendantByNameContains(root, ct, text);
+    }
+
+    private static (int X, int Y) GetOffsetPoint(AutomationElement anchor, int offsetX, int offsetY)
+    {
+        try
+        {
+            var ar = anchor.Current.BoundingRectangle;
+            var x = (int)(ar.Left + ar.Width / 2 + offsetX);
+            var y = (int)(ar.Top + ar.Height / 2 + offsetY);
+            return (x, y);
+        }
+        catch
+        {
+            return (0, 0);
+        }
+    }
+
+    private static (int X, int Y) GetWindowOffsetPoint(AutomationElement? window, int offsetX, int offsetY)
+    {
+        if (window == null)
+            return (0, 0);
+        try
+        {
+            var wr = window.Current.BoundingRectangle;
+            var x = (int)(wr.Left + offsetX);
+            var y = (int)(wr.Top + offsetY);
+            return (x, y);
+        }
+        catch
+        {
+            return (0, 0);
+        }
+    }
+
+    private static AutomationElement? ResolveInputTargetAtPoint(AutomationElement? windowRoot, int x, int y)
+    {
+        // 1) 点击后优先取焦点控件（很多窗口会把焦点给到编辑框）。
+        try
+        {
+            var focused = AutomationElement.FocusedElement;
+            if (focused != null && focused.Current.ControlType == ControlType.Edit)
+                return focused;
+        }
+        catch { /* ignore */ }
+
+        // 2) 再按命中点向父级回溯查找 Edit。
+        try
+        {
+            var hit = AutomationElement.FromPoint(new System.Windows.Point(x, y));
+            if (hit == null)
+                goto fallbackNearest;
+            if (hit.Current.ControlType == ControlType.Edit)
+                return hit;
+            AutomationElement? cur = hit;
+            while (cur != null)
+            {
+                if (cur.Current.ControlType == ControlType.Edit)
+                    return cur;
+                cur = TreeWalker.ControlViewWalker.GetParent(cur);
+            }
+        }
+        catch { /* ignore */ }
+
+fallbackNearest:
+        // 3) 最后从窗口内找“离点击点最近”的输入框做兜底。
+        if (windowRoot == null)
+            return null;
+        try
+        {
+            var edits = windowRoot.FindAll(
+                TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
+            if (edits == null || edits.Count == 0)
+                return null;
+
+            AutomationElement? best = null;
+            var bestScore = double.MaxValue;
+            foreach (AutomationElement e in edits)
+            {
+                try
+                {
+                    var r = e.Current.BoundingRectangle;
+                    if (r.Width <= 0 || r.Height <= 0)
+                        continue;
+                    var cx = r.Left + r.Width / 2.0;
+                    var cy = r.Top + r.Height / 2.0;
+                    var dx = cx - x;
+                    var dy = cy - y;
+                    var dist2 = dx * dx + dy * dy;
+                    if (dist2 < bestScore)
+                    {
+                        bestScore = dist2;
+                        best = e;
+                    }
+                }
+                catch { /* ignore */ }
+            }
+            return best;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool TryMapControlType(string? typeText, out ControlType controlType)
+    {
+        controlType = ControlType.Text;
+        if (string.IsNullOrWhiteSpace(typeText) ||
+            string.Equals(typeText, "文字", StringComparison.Ordinal) ||
+            string.Equals(typeText, "text", StringComparison.OrdinalIgnoreCase))
+        {
+            controlType = ControlType.Text;
+            return true;
+        }
+        if (string.Equals(typeText, "输入框", StringComparison.Ordinal) ||
+            string.Equals(typeText, "inputBox", StringComparison.OrdinalIgnoreCase))
+        {
+            controlType = ControlType.Edit;
+            return true;
+        }
+        if (string.Equals(typeText, "按钮", StringComparison.Ordinal) ||
+            string.Equals(typeText, "button", StringComparison.OrdinalIgnoreCase))
+        {
+            controlType = ControlType.Button;
+            return true;
+        }
+        if (string.Equals(typeText, "radioBtn", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(typeText, "单选框", StringComparison.Ordinal))
+        {
+            controlType = ControlType.RadioButton;
+            return true;
+        }
+        if (string.Equals(typeText, "dropList", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(typeText, "下拉框", StringComparison.Ordinal) ||
+            string.Equals(typeText, "下拉列表", StringComparison.Ordinal))
+        {
+            controlType = ControlType.ComboBox;
+            return true;
+        }
+        if (string.Equals(typeText, "window", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(typeText, "窗口", StringComparison.Ordinal))
+        {
+            controlType = ControlType.Window;
+            return true;
+        }
+        return false;
+    }
+
+    private static List<WithdrawCandidateRow> DeduplicateByUsername(List<WithdrawCandidateRow> rows)
+    {
+        var map = new Dictionary<string, WithdrawCandidateRow>(StringComparer.Ordinal);
+        foreach (var r in rows)
+        {
+            if (!map.TryGetValue(r.Username, out var old) || r.Score > old.Score)
+                map[r.Username] = r;
+        }
+        return map.Values.ToList();
+    }
+
+    private static void EnsureWindowNormal(AutomationElement window)
+    {
+        try
+        {
+            if (window.TryGetCurrentPattern(WindowPattern.Pattern, out var wpObj) && wpObj is WindowPattern wp)
+                wp.SetWindowVisualState(WindowVisualState.Normal);
+        }
+        catch { /* ignore */ }
+    }
+
+    private async Task<bool> ShowAccountOnMerchantAsync(
+        AutomationElement helperRoot,
+        WithdrawCandidateRow candidate,
+        IProgress<string> progress,
+        CancellationToken ct)
+    {
+        var row = HelperGridReader.FindDataItemRowByUsername(helperRoot, candidate.Username);
+        if (row == null)
+        {
+            progress.Report($"未在表格中找到用户行（rowID={candidate.RowId}）：{candidate.Username}");
+            return false;
+        }
+
+        if (_automation.IsElementVisibleInViewport(row))
+        {
+            progress.Report($"rowID={candidate.RowId} 已在可视范围内，无需滚动。");
+        }
+        else
+        {
+            var ensuredVisible = _automation.TryEnsureDataItemVisible(row);
+            progress.Report(ensuredVisible
+                ? $"rowID={candidate.RowId} 原本不可视，已滚动到可视范围。"
+                : $"rowID={candidate.RowId} 不可视且滚动未能保证可视，继续尝试直接操作。");
+        }
+
+        _automation.LeftClickElement(row);
+        var (clickX, clickY) = GetElementCenter(row);
+        progress.Report($"rowID={candidate.RowId} 已左键选中目标行，坐标=({clickX},{clickY})。");
+        await Task.Delay(80, ct).ConfigureAwait(false);
+
+        _automation.RightClickElement(row);
+        progress.Report($"rowID={candidate.RowId} 已在目标行执行右键，坐标=({clickX},{clickY})。");
+        await Task.Delay(280, ct).ConfigureAwait(false);
+        var menuItem = _automation.FindMenuItem("显示此号");
+        if (menuItem == null)
+        {
+            progress.Report($"未找到右键菜单项「显示此号」（rowID={candidate.RowId}，用户名={candidate.Username}）。");
+            return false;
+        }
+        _automation.InvokeButton(menuItem);
+        await Task.Delay(900, ct).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task<bool> MerchantFillExchangeAsync(
+        AutomationElement merchantRoot,
+        int withdrawAmountCoins,
+        IProgress<string> progress,
+        CancellationToken ct)
+    {
+        if (!SelectTabItem(merchantRoot, "讯币兑现", progress))
+        {
+            progress.Report("未能切换到「讯币兑现」页面。");
+            return false;
+        }
+        await Task.Delay(350, ct).ConfigureAwait(false);
+
+        var scope = _automation.FindDescendantByNameContains(merchantRoot, ControlType.Group, "积分换讯币")
+            ?? _automation.FindDescendantByNameContains(merchantRoot, ControlType.Pane, "积分换讯币")
+            ?? merchantRoot;
+
+        var edit = FindExchangeQuantityEdit(scope);
+        if (edit == null)
+        {
+            progress.Report("未找到「兑换讯币数量」输入框。");
+            return false;
+        }
+        _automation.SetEditValue(edit, withdrawAmountCoins.ToString());
+        await Task.Delay(200, ct).ConfigureAwait(false);
+
+        var ok = FindNamedButtonInScope(scope, "确定");
+        if (ok == null)
+        {
+            progress.Report("未找到讯币兑现区域的「确定」按钮。");
+            return false;
+        }
+        _automation.InvokeButton(ok);
+        progress.Report("已提交讯币兑现。");
+        return true;
+    }
+
+    private AutomationElement? FindExchangeQuantityEdit(AutomationElement scope)
+    {
+        var byName = _automation.FindDescendantByNameContains(scope, ControlType.Edit, "兑换讯币数量");
+        if (byName != null)
+            return byName;
+        try
+        {
+            var edits = scope.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
+            if (edits == null || edits.Count == 0)
+                return null;
+            if (edits.Count == 1)
+                return edits[0];
+            foreach (AutomationElement e in edits)
+            {
+                try
+                {
+                    var n = e.Current.Name ?? "";
+                    if (n.Contains("兑换", StringComparison.Ordinal))
+                        return e;
+                }
+                catch { /* ignore */ }
+            }
+            return edits[0];
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<bool> MerchantFillMemberCenterAsync(
+        AutomationElement merchantRoot,
+        string phone,
+        int amountCoins,
+        IProgress<string> progress,
+        CancellationToken ct)
+    {
+        if (!SelectTabItem(merchantRoot, "会员中心", progress))
+        {
+            progress.Report("未能切换到「会员中心」页面。");
+            return false;
+        }
+        await Task.Delay(350, ct).ConfigureAwait(false);
+
+        var scope = _automation.FindDescendantByNameContains(merchantRoot, ControlType.Group, "给APP手机号转账")
+            ?? _automation.FindDescendantByNameContains(merchantRoot, ControlType.Pane, "给APP手机号转账")
+            ?? _automation.FindDescendantByNameContains(merchantRoot, ControlType.Custom, "手机号转账")
+            ?? merchantRoot;
+
+        var edits = CollectEditsByTop(scope);
+        if (edits.Count < 3)
+        {
+            progress.Report($"会员中心转账区输入框数量不足（需要 3 个，当前 {edits.Count}）。");
+            return false;
+        }
+
+        var amt = amountCoins.ToString();
+        _automation.SetEditValue(edits[0], phone);
+        await Task.Delay(120, ct).ConfigureAwait(false);
+        _automation.SetEditValue(edits[1], amt);
+        await Task.Delay(120, ct).ConfigureAwait(false);
+        _automation.SetEditValue(edits[2], amt);
+        await Task.Delay(200, ct).ConfigureAwait(false);
+
+        var ok = FindNamedButtonInScope(scope, "确定");
+        if (ok == null)
+        {
+            progress.Report("未找到会员中心转账区的「确定」按钮。");
+            return false;
+        }
+        _automation.InvokeButton(ok);
+        progress.Report("已提交会员中心转账。");
+        return true;
+    }
+
+    private static List<AutomationElement> CollectEditsByTop(AutomationElement scope)
+    {
+        var list = new List<AutomationElement>();
+        AutomationElementCollection? edits = null;
+        try
+        {
+            edits = scope.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
+        }
+        catch
+        {
+            return list;
+        }
+        if (edits == null)
+            return list;
+        foreach (AutomationElement e in edits)
+            list.Add(e);
+        list.Sort((a, b) =>
+        {
+            try
+            {
+                return a.Current.BoundingRectangle.Top.CompareTo(b.Current.BoundingRectangle.Top);
+            }
+            catch
+            {
+                return 0;
+            }
+        });
+        return list;
+    }
+
+    private bool SelectTabItem(AutomationElement root, string nameContains, IProgress<string> progress)
+    {
+        // 策略A：标准 TabItem
+        var tab = _automation.FindDescendantByNameContains(root, ControlType.TabItem, nameContains);
+        if (tab != null)
+        {
+            try
+            {
+                if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var spObj) && spObj is SelectionItemPattern sip)
+                    sip.Select();
+                else
+                    _automation.InvokeButton(tab);
+                progress.Report($"已通过 TabItem 切换到「{nameContains}」。");
+                return true;
+            }
+            catch
+            {
+                try
+                {
+                    _automation.InvokeButton(tab);
+                    progress.Report($"已通过 TabItem(Invoke) 切换到「{nameContains}」。");
+                    return true;
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        // 策略B：按钮文本匹配
+        var btn = _automation.FindDescendantByNameContains(root, ControlType.Button, nameContains);
+        if (btn != null)
+        {
+            try
+            {
+                _automation.LeftClickElement(btn);
+                progress.Report($"已通过 Button 文本匹配切换到「{nameContains}」。");
+                return true;
+            }
+            catch { /* ignore */ }
+
+            try
+            {
+                _automation.InvokeButton(btn);
+                progress.Report($"已通过 Button Invoke 切换到「{nameContains}」。");
+                return true;
+            }
+            catch { /* ignore */ }
+        }
+
+        // 策略C：文本/自定义控件命中，点击自身或父容器
+        var textOrCustom = _automation.FindDescendantByNameContains(root, ControlType.Text, nameContains)
+            ?? _automation.FindDescendantByNameContains(root, ControlType.Custom, nameContains);
+        if (textOrCustom != null)
+        {
+            try
+            {
+                _automation.LeftClickElement(textOrCustom);
+                progress.Report($"已通过 Text/Custom 命中切换到「{nameContains}」。");
+                return true;
+            }
+            catch { /* ignore */ }
+            try
+            {
+                var parent = TreeWalker.ControlViewWalker.GetParent(textOrCustom);
+                if (parent != null)
+                {
+                    _automation.LeftClickElement(parent);
+                    progress.Report($"已通过 Text/Custom 父容器点击切换到「{nameContains}」。");
+                    return true;
+                }
+            }
+            catch { /* ignore */ }
+        }
+
+        // 策略D：锚点偏移（以「会员中心」作为参照，估算顶部标签位置）
+        var anchor = _automation.FindDescendantByNameContains(root, ControlType.Text, "会员中心")
+            ?? _automation.FindDescendantByNameContains(root, ControlType.Button, "会员中心")
+            ?? _automation.FindDescendantByNameContains(root, ControlType.Custom, "会员中心");
+        if (anchor != null)
+        {
+            var (ax, ay) = GetElementCenter(anchor);
+            if (ax > 0 && ay > 0)
+            {
+                // 「讯币兑现」一般在「会员中心」左侧一个标签位；「会员中心」本身则不偏移。
+                var tx = string.Equals(nameContains, "会员中心", StringComparison.Ordinal)
+                    ? ax
+                    : ax - 110;
+                var ty = ay;
+                _automation.LeftClickAt(tx, ty);
+                progress.Report($"已通过锚点偏移点击切换到「{nameContains}」，点击坐标=({tx},{ty})。");
+                return true;
+            }
+        }
+
+        // 策略E：窗口相对偏移兜底（顶部导航大致区域）
+        try
+        {
+            var wr = root.Current.BoundingRectangle;
+            if (wr.Width > 0 && wr.Height > 0)
+            {
+                // 估算：顶部导航条 y≈40；x 按名称选择经验值。
+                var y = (int)(wr.Top + 40);
+                var x = string.Equals(nameContains, "会员中心", StringComparison.Ordinal)
+                    ? (int)(wr.Left + 470)
+                    : (int)(wr.Left + 380);
+                _automation.LeftClickAt(x, y);
+                progress.Report($"已通过窗口偏移兜底点击切换到「{nameContains}」，点击坐标=({x},{y})。");
+                return true;
+            }
+        }
+        catch { /* ignore */ }
+
+        progress.Report($"未找到可用策略切换到「{nameContains}」（TabItem/Button/Text/锚点偏移/窗口偏移均失败）。");
+        return false;
+    }
+
+    private AutomationElement? FindNamedButtonInScope(AutomationElement scope, string name)
+    {
+        try
+        {
+            var cond = new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                new PropertyCondition(AutomationElement.NameProperty, name));
+            return scope.FindFirst(TreeScope.Descendants, cond);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static (int X, int Y) GetElementCenter(AutomationElement element)
+    {
+        try
+        {
+            var r = element.Current.BoundingRectangle;
+            return ((int)(r.Left + r.Width / 2), (int)(r.Top + r.Height / 2));
+        }
+        catch
+        {
+            return (0, 0);
+        }
     }
 }

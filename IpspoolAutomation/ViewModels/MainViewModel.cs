@@ -1,11 +1,14 @@
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IpspoolAutomation.Automation;
+using IpspoolAutomation.Models.Capture;
 using IpspoolAutomation.Services;
+using IpspoolAutomation.Views;
 using Microsoft.Win32;
 
 namespace IpspoolAutomation.ViewModels;
@@ -15,6 +18,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IAuthService _authService;
     private readonly IAppConfig _config;
     private readonly XunjieAutomationWorkflow _workflow;
+    private readonly IAutomationService _automationService;
+    private readonly ICaptureTargetSettingsService _captureTargetSettingsService;
     private CancellationTokenSource? _cts;
     private Action? _onLogout;
     private Action? _onOpenSubscribe;
@@ -33,6 +38,8 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _autoWithdrawAfterExchange;
     [ObservableProperty] private decimal _totalExchangedCoins;
     [ObservableProperty] private decimal _equivalentAmount;
+    [ObservableProperty] private string _exchangeSettingsHint = "";
+    [ObservableProperty] private bool _isExchangeSettingsHintVisible;
 
     [ObservableProperty] private string _withdrawStatusMessage = "提现流程待接入自动化步骤。";
     [ObservableProperty] private string _subscribePlan = "Monthly";
@@ -49,6 +56,7 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<string> LogLines { get; } = new();
     public ObservableCollection<ExchangeRecordItem> ExchangeRecords { get; } = new();
     public ObservableCollection<WithdrawRecordItem> WithdrawRecords { get; } = new();
+    public ObservableCollection<CaptureTargetItem> CaptureTargetList { get; } = new();
     private static readonly string LocalSettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "IpspoolAutomation",
@@ -57,16 +65,20 @@ public sealed partial class MainViewModel : ObservableObject
     public MainViewModel(
         IAuthService authService,
         IAppConfig config,
-        IAutomationService automationService)
+        IAutomationService automationService,
+        ICaptureTargetSettingsService captureTargetSettingsService)
     {
         _authService = authService;
         _config = config;
+        _automationService = automationService;
+        _captureTargetSettingsService = captureTargetSettingsService;
         _workflow = new XunjieAutomationWorkflow(automationService, _config.XunjieHelperPath, _config.XunjieMerchantPath);
         UserInfo = _authService.UserName ?? "用户";
         MerchantPath = _config.XunjieMerchantPath;
         HelperPath = _config.XunjieHelperPath;
         SeedMockRecords();
         LoadLocalSettings();
+        LoadCaptureTargetSettings();
     }
 
     public void SetOnLogout(Action callback) => _onLogout = callback;
@@ -106,8 +118,24 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
-    private void AutoExchange()
+    private async Task AutoExchange()
     {
+        ExchangeSettingsHint = "";
+
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(MerchantPath)) missing.Add("商家路径");
+        if (string.IsNullOrWhiteSpace(HelperPath)) missing.Add("辅助路径");
+        if (string.IsNullOrWhiteSpace(WithdrawName)) missing.Add("姓名");
+        if (string.IsNullOrWhiteSpace(AlipayAccount)) missing.Add("支付宝");
+        if (!IsAgentPayMode && !IsRegionalAgentMode) missing.Add("打款方式");
+        if (!IsFeeFromPoints) missing.Add("手续费扣除（从积分扣5%）");
+
+        if (missing.Count > 0)
+        {
+            ExchangeSettingsHint = $"请先在“设置”里填写：{string.Join("、", missing)}";
+            return;
+        }
+
         var amount = decimal.TryParse(ExchangeAmount, out var a) ? a : 0m;
         var points = int.TryParse(ExchangePoints, out var p) ? p : 0;
         var exchangedCoins = points / 1000m;
@@ -128,12 +156,65 @@ public sealed partial class MainViewModel : ObservableObject
             LogLines.Add($"[{now:HH:mm:ss}] 勾选了兑换后自动提现，将在兑换结束后执行提现。");
         }
         LogText = string.Join(Environment.NewLine, LogLines);
+
+        // 启动两个软件（使用设置中的路径）
+        await RunAsync(CancellationToken.None).ConfigureAwait(true);
     }
 
-    [RelayCommand]
-    private void StartWithdraw()
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private async Task StartWithdraw()
     {
-        WithdrawStatusMessage = "已触发提现流程（自动化步骤待补充）。";
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            WithdrawStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(AlipayAccount))
+        {
+            WithdrawStatusMessage = "请先在「设置」中填写收款人手机号。";
+            return;
+        }
+
+        WithdrawStatusMessage = "正在执行自动提现…";
+        IsRunning = true;
+        RunCommand.NotifyCanExecuteChanged();
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        _cts = new CancellationTokenSource();
+        var progress = new Progress<string>(s =>
+        {
+            LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
+            LogText = string.Join(Environment.NewLine, LogLines);
+        });
+        try
+        {
+            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            await workflow.RunWithdrawAsync(
+                progress,
+                AlipayAccount,
+                WithdrawName,
+                AlipayAccount,
+                CaptureTargetList.ToList(),
+                _cts.Token).ConfigureAwait(true);
+            WithdrawStatusMessage = "自动提现流程已结束。";
+        }
+        catch (OperationCanceledException)
+        {
+            WithdrawStatusMessage = "已取消自动提现。";
+        }
+        catch (Exception ex)
+        {
+            WithdrawStatusMessage = $"自动提现异常：{ex.Message}";
+            LogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex}");
+            LogText = string.Join(Environment.NewLine, LogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            RunCommand.NotifyCanExecuteChanged();
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
     }
 
     [RelayCommand]
@@ -203,11 +284,25 @@ public sealed partial class MainViewModel : ObservableObject
         LoadLocalSettings();
     }
 
+    [RelayCommand]
+    private void OpenCaptureSettings()
+    {
+        var vm = new CaptureSettingsViewModel(_captureTargetSettingsService, CaptureTargetList);
+        var window = new CaptureSettingsWindow
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        LoadCaptureTargetSettings();
+    }
+
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         IsRunning = true;
         RunCommand.NotifyCanExecuteChanged();
+        StartWithdrawCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var progress = new Progress<string>(s =>
@@ -217,13 +312,15 @@ public sealed partial class MainViewModel : ObservableObject
         });
         try
         {
-            await _workflow.RunAsync(progress, _cts.Token).ConfigureAwait(true);
+            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            await workflow.RunAsync(progress, _cts.Token).ConfigureAwait(true);
         }
         catch (OperationCanceledException) { }
         finally
         {
             IsRunning = false;
             RunCommand.NotifyCanExecuteChanged();
+            StartWithdrawCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
     }
@@ -313,10 +410,30 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    private void LoadCaptureTargetSettings()
+    {
+        try
+        {
+            var settings = _captureTargetSettingsService.Load();
+            CaptureTargetList.Clear();
+            foreach (var item in settings.CaptureTargetList.OrderBy(x => x.TargetID))
+                CaptureTargetList.Add(item);
+        }
+        catch (Exception ex)
+        {
+            SettingsSaveStatus = $"读取捕捉设置失败：{ex.Message}";
+        }
+    }
+
     private void RecalculateExchangeSummary()
     {
         TotalExchangedCoins = ExchangeRecords.Where(x => string.Equals(x.Status, "成功", StringComparison.Ordinal)).Sum(x => x.ExchangedCoins);
         EquivalentAmount = TotalExchangedCoins;
+    }
+
+    partial void OnExchangeSettingsHintChanged(string value)
+    {
+        IsExchangeSettingsHintVisible = !string.IsNullOrWhiteSpace(value);
     }
 }
 

@@ -1,0 +1,107 @@
+<Window x:Class="IpspoolAutomation.Views.CaptureSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="捕捉设置" Height="420" Width="1050"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        MinWidth="980"
+        MinHeight="360">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="新增目标" Command="{Binding AddTargetCommand}" Padding="12,6"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="36"/>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="70"/>
+                        <ColumnDefinition Width="70"/>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="70"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="#" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="目标类型" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="目标文字" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="3" Text="锚点类型" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="4" Text="锚点文字" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="5" Text="偏移X" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="6" Text="偏移Y" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="7" Text="动作" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="8" Text="输入值" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="9" Text="操作" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding CaptureTargets}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="36"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="70"/>
+                                        <ColumnDefinition Width="70"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="70"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding TargetID}" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              SelectedItem="{Binding TargetType, UpdateSourceTrigger=PropertyChanged}"
+                                              ItemsSource="{Binding DataContext.TargetTypeOptions, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                    <TextBox Grid.Column="2" Text="{Binding TargetText, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                                    <ComboBox Grid.Column="3"
+                                              SelectedItem="{Binding AnchorType, UpdateSourceTrigger=PropertyChanged}"
+                                              ItemsSource="{Binding DataContext.TargetTypeOptions, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="4" Text="{Binding AnchorText, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="5" Text="{Binding OffsetX, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="6" Text="{Binding OffsetY, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                                    <ComboBox Grid.Column="7"
+                                              SelectedItem="{Binding Action, UpdateSourceTrigger=PropertyChanged}"
+                                              ItemsSource="{Binding DataContext.ActionOptions, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="8"
+                                             Text="{Binding InputValue, UpdateSourceTrigger=PropertyChanged}"
+                                             Margin="4,0,0,0"/>
+                                    <Button Grid.Column="9"
+                                            Content="删除"
+                                            Foreground="#FFDC2626"
+                                            Command="{Binding DataContext.DeleteTargetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Vertical" HorizontalAlignment="Center" Margin="0,10,0,0">
+            <Button Content="确定" Command="{Binding ConfirmCommand}" Padding="28,6"/>
+            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,0" Foreground="#FF2563EB" TextWrapping="Wrap"/>
+        </StackPanel>
+    </Grid>
+</Window>
+

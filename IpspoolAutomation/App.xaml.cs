@@ -85,7 +85,8 @@ public partial class App : Application
     {
         var config = new AppConfig();
         var automationService = new UIAutomationService();
-        var vm = new MainViewModel(_authService!, config, automationService);
+        var captureTargetSettingsService = new CaptureTargetSettingsService();
+        var vm = new MainViewModel(_authService!, config, automationService, captureTargetSettingsService);
         vm.SetOnLogout(() =>
         {
             mainWindow.Hide();
