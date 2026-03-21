@@ -6,6 +6,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IpspoolAutomation.Automation;
+using IpspoolAutomation.Models;
 using IpspoolAutomation.Models.Capture;
 using IpspoolAutomation.Services;
 using IpspoolAutomation.Views;
@@ -17,9 +18,10 @@ public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IAuthService _authService;
     private readonly IAppConfig _config;
-    private readonly XunjieAutomationWorkflow _workflow;
     private readonly IAutomationService _automationService;
     private readonly ICaptureTargetSettingsService _captureTargetSettingsService;
+    private readonly IWithdrawRecordsService _withdrawRecordsService;
+    private readonly IWithdrawDailyService _withdrawDailyService;
     private CancellationTokenSource? _cts;
     private Action? _onLogout;
     private Action? _onOpenSubscribe;
@@ -27,19 +29,14 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _userInfo = "";
     [ObservableProperty] private string _logText = "";
     [ObservableProperty] private bool _isRunning;
-    [ObservableProperty] private string _currentPage = "兑换讯币";
+    [ObservableProperty] private string _currentPage = "提现";
 
     [ObservableProperty] private string _subscriptionStatusText = "未订阅服务";
     [ObservableProperty] private bool _isSubscribed;
     [ObservableProperty] private string _expireAtText = "--";
 
-    [ObservableProperty] private string _exchangeAmount = "100";
-    [ObservableProperty] private string _exchangePoints = "100000";
-    [ObservableProperty] private bool _autoWithdrawAfterExchange;
+    /// <summary>提现详情页：成功行的已兑讯币合计。</summary>
     [ObservableProperty] private decimal _totalExchangedCoins;
-    [ObservableProperty] private decimal _equivalentAmount;
-    [ObservableProperty] private string _exchangeSettingsHint = "";
-    [ObservableProperty] private bool _isExchangeSettingsHintVisible;
 
     [ObservableProperty] private string _withdrawStatusMessage = "提现流程待接入自动化步骤。";
     [ObservableProperty] private string _subscribePlan = "Monthly";
@@ -52,9 +49,13 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isRegionalAgentMode;
     [ObservableProperty] private bool _isFeeFromPoints = true;
     [ObservableProperty] private string _settingsSaveStatus = "";
+    [ObservableProperty] private string _withdrawRecordsTotalDisplay = "合计：0";
+
+    /// <summary>提现详情列表是否为空（用于显示「当前无提现记录」）。</summary>
+    [ObservableProperty] private bool _isWithdrawDetailEmpty = true;
 
     public ObservableCollection<string> LogLines { get; } = new();
-    public ObservableCollection<ExchangeRecordItem> ExchangeRecords { get; } = new();
+    public ObservableCollection<WithdrawDetailItem> WithdrawDetailItems { get; } = new();
     public ObservableCollection<WithdrawRecordItem> WithdrawRecords { get; } = new();
     public ObservableCollection<CaptureTargetItem> CaptureTargetList { get; } = new();
     private static readonly string LocalSettingsPath = Path.Combine(
@@ -66,25 +67,29 @@ public sealed partial class MainViewModel : ObservableObject
         IAuthService authService,
         IAppConfig config,
         IAutomationService automationService,
-        ICaptureTargetSettingsService captureTargetSettingsService)
+        ICaptureTargetSettingsService captureTargetSettingsService,
+        IWithdrawRecordsService withdrawRecordsService,
+        IWithdrawDailyService withdrawDailyService)
     {
         _authService = authService;
         _config = config;
         _automationService = automationService;
         _captureTargetSettingsService = captureTargetSettingsService;
-        _workflow = new XunjieAutomationWorkflow(automationService, _config.XunjieHelperPath, _config.XunjieMerchantPath);
+        _withdrawRecordsService = withdrawRecordsService;
+        _withdrawDailyService = withdrawDailyService;
         UserInfo = _authService.UserName ?? "用户";
         MerchantPath = _config.XunjieMerchantPath;
         HelperPath = _config.XunjieHelperPath;
-        SeedMockRecords();
         LoadLocalSettings();
         LoadCaptureTargetSettings();
+        LoadWithdrawRecords();
+        LoadWithdrawDaily();
     }
 
     public void SetOnLogout(Action callback) => _onLogout = callback;
     public void SetOnOpenSubscribe(Action callback) => _onOpenSubscribe = callback;
 
-    public bool IsExchangePage => CurrentPage == "兑换讯币";
+    public bool IsWithdrawDetailPage => CurrentPage == "提现详情";
     public bool IsWithdrawPage => CurrentPage == "提现";
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
     public bool IsSubscribePage => CurrentPage == "订阅";
@@ -97,10 +102,10 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void GoExchange() => SetCurrentPage("兑换讯币");
+    private void GoWithdraw() => SetCurrentPage("提现");
 
     [RelayCommand]
-    private void GoWithdraw() => SetCurrentPage("提现");
+    private void GoWithdrawDetail() => SetCurrentPage("提现详情");
 
     [RelayCommand]
     private void GoWithdrawRecords() => SetCurrentPage("提现记录");
@@ -115,50 +120,6 @@ public sealed partial class MainViewModel : ObservableObject
     private void GoSubscribeNow()
     {
         SetCurrentPage("Subscribe");
-    }
-
-    [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task AutoExchange()
-    {
-        ExchangeSettingsHint = "";
-
-        var missing = new List<string>();
-        if (string.IsNullOrWhiteSpace(MerchantPath)) missing.Add("商家路径");
-        if (string.IsNullOrWhiteSpace(HelperPath)) missing.Add("辅助路径");
-        if (string.IsNullOrWhiteSpace(WithdrawName)) missing.Add("姓名");
-        if (string.IsNullOrWhiteSpace(AlipayAccount)) missing.Add("支付宝");
-        if (!IsAgentPayMode && !IsRegionalAgentMode) missing.Add("打款方式");
-        if (!IsFeeFromPoints) missing.Add("手续费扣除（从积分扣5%）");
-
-        if (missing.Count > 0)
-        {
-            ExchangeSettingsHint = $"请先在“设置”里填写：{string.Join("、", missing)}";
-            return;
-        }
-
-        var amount = decimal.TryParse(ExchangeAmount, out var a) ? a : 0m;
-        var points = int.TryParse(ExchangePoints, out var p) ? p : 0;
-        var exchangedCoins = points / 1000m;
-        var remainingPoints = Math.Max(0, points - (int)(exchangedCoins * 1000m));
-        var now = DateTime.Now;
-        ExchangeRecords.Insert(0, new ExchangeRecordItem
-        {
-            Account = UserInfo,
-            Points = points,
-            RemainingPoints = remainingPoints,
-            ExchangedCoins = exchangedCoins,
-            Status = "成功"
-        });
-        RecalculateExchangeSummary();
-        LogLines.Add($"[{now:HH:mm:ss}] 自动兑换已触发，金额: {amount:0.##}，积分: {points}");
-        if (AutoWithdrawAfterExchange)
-        {
-            LogLines.Add($"[{now:HH:mm:ss}] 勾选了兑换后自动提现，将在兑换结束后执行提现。");
-        }
-        LogText = string.Join(Environment.NewLine, LogLines);
-
-        // 启动两个软件（使用设置中的路径）
-        await RunAsync(CancellationToken.None).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
@@ -177,7 +138,6 @@ public sealed partial class MainViewModel : ObservableObject
 
         WithdrawStatusMessage = "正在执行自动提现…";
         IsRunning = true;
-        RunCommand.NotifyCanExecuteChanged();
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         _cts = new CancellationTokenSource();
@@ -189,7 +149,7 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
-            await workflow.RunWithdrawAsync(
+            var runResult = await workflow.RunWithdrawAsync(
                 progress,
                 AlipayAccount,
                 WithdrawName,
@@ -197,6 +157,11 @@ public sealed partial class MainViewModel : ObservableObject
                 CaptureTargetList.ToList(),
                 _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "自动提现流程已结束。";
+            if (runResult != null)
+            {
+                ApplyWithdrawDaily(runResult);
+                AppendWithdrawRecord(runResult);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -211,7 +176,6 @@ public sealed partial class MainViewModel : ObservableObject
         finally
         {
             IsRunning = false;
-            RunCommand.NotifyCanExecuteChanged();
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
@@ -297,34 +261,6 @@ public sealed partial class MainViewModel : ObservableObject
         LoadCaptureTargetSettings();
     }
 
-    [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task RunAsync(CancellationToken cancellationToken)
-    {
-        IsRunning = true;
-        RunCommand.NotifyCanExecuteChanged();
-        StartWithdrawCommand.NotifyCanExecuteChanged();
-        StopCommand.NotifyCanExecuteChanged();
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var progress = new Progress<string>(s =>
-        {
-            LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
-            LogText = string.Join(Environment.NewLine, LogLines);
-        });
-        try
-        {
-            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
-            await workflow.RunAsync(progress, _cts.Token).ConfigureAwait(true);
-        }
-        catch (OperationCanceledException) { }
-        finally
-        {
-            IsRunning = false;
-            RunCommand.NotifyCanExecuteChanged();
-            StartWithdrawCommand.NotifyCanExecuteChanged();
-            StopCommand.NotifyCanExecuteChanged();
-        }
-    }
-
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop()
     {
@@ -343,7 +279,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnCurrentPageChanged(string value)
     {
-        OnPropertyChanged(nameof(IsExchangePage));
+        OnPropertyChanged(nameof(IsWithdrawDetailPage));
         OnPropertyChanged(nameof(IsWithdrawPage));
         OnPropertyChanged(nameof(IsWithdrawRecordsPage));
         OnPropertyChanged(nameof(IsSubscribePage));
@@ -353,16 +289,6 @@ public sealed partial class MainViewModel : ObservableObject
     private void SetCurrentPage(string page)
     {
         CurrentPage = page;
-    }
-
-    private void SeedMockRecords()
-    {
-        ExchangeRecords.Add(new ExchangeRecordItem { Account = "abc", Points = 100000, RemainingPoints = 123, ExchangedCoins = 100m, Status = "成功" });
-        ExchangeRecords.Add(new ExchangeRecordItem { Account = "abc2", Points = 200000, RemainingPoints = 1324, ExchangedCoins = 200m, Status = "失败" });
-        RecalculateExchangeSummary();
-
-        WithdrawRecords.Add(new WithdrawRecordItem { Time = DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd HH:mm:ss"), Amount = 150m, Status = "已到账" });
-        WithdrawRecords.Add(new WithdrawRecordItem { Time = DateTime.Now.AddHours(-3).ToString("yyyy-MM-dd HH:mm:ss"), Amount = 80m, Status = "处理中" });
     }
 
     partial void OnIsAgentPayModeChanged(bool value)
@@ -425,32 +351,106 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void RecalculateExchangeSummary()
+    private void LoadWithdrawRecords()
     {
-        TotalExchangedCoins = ExchangeRecords.Where(x => string.Equals(x.Status, "成功", StringComparison.Ordinal)).Sum(x => x.ExchangedCoins);
-        EquivalentAmount = TotalExchangedCoins;
+        try
+        {
+            var data = _withdrawRecordsService.Load();
+            WithdrawRecords.Clear();
+            foreach (var item in data.Records.OrderByDescending(r => r.RecordedAt).Take(WithdrawRecordsService.MaxRecords))
+                WithdrawRecords.Add(item);
+            AssignWithdrawRecordRowIndices();
+            RefreshWithdrawRecordsTotal();
+        }
+        catch
+        {
+            RefreshWithdrawRecordsTotal();
+        }
     }
 
-    partial void OnExchangeSettingsHintChanged(string value)
+    private void LoadWithdrawDaily()
     {
-        IsExchangeSettingsHintVisible = !string.IsNullOrWhiteSpace(value);
+        try
+        {
+            var data = _withdrawDailyService.Load();
+            WithdrawDetailItems.Clear();
+            foreach (var x in data.Items)
+                WithdrawDetailItems.Add(x);
+            AssignWithdrawDetailRowIndices();
+            RecalculateWithdrawDetailTotal();
+        }
+        catch
+        {
+            RecalculateWithdrawDetailTotal();
+        }
+        finally
+        {
+            RefreshWithdrawDetailEmptyState();
+        }
     }
-}
 
-public sealed class ExchangeRecordItem
-{
-    public string Account { get; set; } = "";
-    public int Points { get; set; }
-    public int RemainingPoints { get; set; }
-    public decimal ExchangedCoins { get; set; }
-    public string Status { get; set; } = "";
-}
+    private void ApplyWithdrawDaily(WithdrawRunResult result)
+    {
+        WithdrawDetailItems.Clear();
+        foreach (var d in result.Details)
+            WithdrawDetailItems.Add(d);
+        try
+        {
+            _withdrawDailyService.Save(new WithdrawDailyData { Items = result.Details.ToList() });
+        }
+        catch { /* ignore */ }
+        RecalculateWithdrawDetailTotal();
+        RefreshWithdrawDetailEmptyState();
+    }
 
-public sealed class WithdrawRecordItem
-{
-    public string Time { get; set; } = "";
-    public decimal Amount { get; set; }
-    public string Status { get; set; } = "";
+    private void RefreshWithdrawDetailEmptyState()
+    {
+        IsWithdrawDetailEmpty = WithdrawDetailItems.Count == 0;
+    }
+
+    private void AssignWithdrawRecordRowIndices()
+    {
+        for (var i = 0; i < WithdrawRecords.Count; i++)
+            WithdrawRecords[i].RowIndex = i + 1;
+    }
+
+    private void AssignWithdrawDetailRowIndices()
+    {
+        for (var i = 0; i < WithdrawDetailItems.Count; i++)
+            WithdrawDetailItems[i].RowIndex = i + 1;
+    }
+
+    private void AppendWithdrawRecord(WithdrawRunResult result)
+    {
+        WithdrawRecords.Insert(0, new WithdrawRecordItem
+        {
+            RecordedAt = DateTime.Now,
+            ProcessedAccountCount = result.ProcessedCount,
+            Amount = result.TotalCoins
+        });
+        while (WithdrawRecords.Count > WithdrawRecordsService.MaxRecords)
+            WithdrawRecords.RemoveAt(WithdrawRecords.Count - 1);
+        AssignWithdrawRecordRowIndices();
+        try
+        {
+            _withdrawRecordsService.Save(new WithdrawRecordsData { Records = WithdrawRecords.ToList() });
+        }
+        catch { /* ignore */ }
+        RefreshWithdrawRecordsTotal();
+    }
+
+    private void RefreshWithdrawRecordsTotal()
+    {
+        var sum = WithdrawRecords.Sum(x => x.Amount);
+        WithdrawRecordsTotalDisplay = $"合计：{sum:F0}";
+    }
+
+    private void RecalculateWithdrawDetailTotal()
+    {
+        TotalExchangedCoins = WithdrawDetailItems
+            .Where(x => string.Equals(x.Status, "成功", StringComparison.Ordinal))
+            .Sum(x => x.ExchangedCoins);
+    }
 }
 
 public sealed class LocalUiSettings

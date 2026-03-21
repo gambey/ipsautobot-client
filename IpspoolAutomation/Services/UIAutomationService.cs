@@ -580,6 +580,121 @@ public sealed class UIAutomationService : IAutomationService
         NativeInput.RightClickCenter(element);
     }
 
+    public bool TrySelectComboBoxByDisplayText(AutomationElement combo, string displayText, AutomationElement? searchWithin = null)
+    {
+        if (combo == null || string.IsNullOrWhiteSpace(displayText))
+            return false;
+        displayText = displayText.Trim();
+
+        try
+        {
+            if (combo.TryGetCurrentPattern(ValuePattern.Pattern, out var vpObj) && vpObj is ValuePattern vp)
+            {
+                try
+                {
+                    vp.SetValue(displayText);
+                    Thread.Sleep(40);
+                    var cur = vp.Current.Value ?? "";
+                    if (string.Equals(cur.Trim(), displayText, StringComparison.OrdinalIgnoreCase) ||
+                        cur.Contains(displayText, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch { /* try expand path */ }
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            SetFocus(combo);
+            Thread.Sleep(40);
+        }
+        catch { /* ignore */ }
+
+        ExpandCollapsePattern? expand = null;
+        try
+        {
+            if (combo.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out var expObj) && expObj is ExpandCollapsePattern exp)
+            {
+                expand = exp;
+                if (exp.Current.ExpandCollapseState == ExpandCollapseState.Collapsed)
+                    exp.Expand();
+            }
+        }
+        catch { /* ignore */ }
+
+        Thread.Sleep(160);
+
+        AutomationElement? item = FindListItemMatchingDisplayText(combo, displayText, TreeScope.Descendants);
+        if (item == null && searchWithin != null)
+            item = FindListItemMatchingDisplayText(searchWithin, displayText, TreeScope.Descendants);
+        if (item == null)
+            item = FindListItemMatchingDisplayText(AutomationElement.RootElement, displayText, TreeScope.Descendants);
+
+        if (item == null)
+        {
+            try
+            {
+                if (expand?.Current.ExpandCollapseState == ExpandCollapseState.Expanded)
+                    expand.Collapse();
+            }
+            catch { /* ignore */ }
+            return false;
+        }
+
+        try
+        {
+            if (item.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var sipObj) && sipObj is SelectionItemPattern sip)
+            {
+                sip.Select();
+                Thread.Sleep(50);
+                return true;
+            }
+        }
+        catch { /* fall through to click */ }
+
+        try
+        {
+            NativeInput.LeftClickCenter(item);
+            Thread.Sleep(50);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static AutomationElement? FindListItemMatchingDisplayText(AutomationElement root, string displayText, TreeScope scope)
+    {
+        AutomationElementCollection? all = null;
+        try
+        {
+            var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem);
+            all = root.FindAll(scope, cond);
+        }
+        catch
+        {
+            return null;
+        }
+
+        AutomationElement? containsMatch = null;
+        foreach (AutomationElement el in all)
+        {
+            try
+            {
+                var n = (el.Current.Name ?? "").Trim();
+                if (string.Equals(n, displayText, StringComparison.OrdinalIgnoreCase))
+                    return el;
+                if (containsMatch == null && n.Contains(displayText, StringComparison.OrdinalIgnoreCase))
+                    containsMatch = el;
+            }
+            catch { /* ignore */ }
+        }
+
+        return containsMatch;
+    }
+
     private bool TryFindByTypeAndText(AutomationElement root, string typeText, string targetText, out AutomationElement? target)
     {
         target = null;

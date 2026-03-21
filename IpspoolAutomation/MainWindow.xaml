@@ -27,7 +27,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="去订阅" Command="{Binding GoSubscribeNowCommand}" Margin="0,0,8,0" Padding="12,6"/>
+                    <Button Content="去订阅" Command="{Binding GoSubscribeCommand}" Margin="0,0,8,0" Padding="12,6"/>
                     <Button Content="退出登录" Command="{Binding LogoutCommand}" Padding="12,6"/>
                 </StackPanel>
             </Grid>
@@ -42,8 +42,8 @@
             <Border Grid.Column="0" Background="#FF111827" Padding="12">
                 <StackPanel>
                     <TextBlock Text="功能菜单" Foreground="#FF9CA3AF" Margin="8,8,8,14"/>
-                    <Button Content="兑换讯币" Command="{Binding GoExchangeCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现" Command="{Binding GoWithdrawCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <Button Content="提现详情" Command="{Binding GoWithdrawDetailCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="订阅" Command="{Binding GoSubscribeCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="设置" Command="{Binding GoSettingsCommand}" Margin="0,0,0,8" Padding="12,10"/>
@@ -63,36 +63,30 @@
                     </TextBlock>
 
                     <Grid Grid.Row="1" Margin="0,14,0,0">
-                        <Grid Visibility="{Binding IsExchangePage, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Grid Visibility="{Binding IsWithdrawDetailPage, Converter={StaticResource BoolToVisibilityConverter}}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <Grid Margin="0,0,0,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                               
-                                <TextBlock Grid.Column="1" Text="{Binding TotalExchangedCoins, StringFormat=合计讯币：{0:F0}}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,28,0"/>
-                                <TextBlock Grid.Column="2" Text="{Binding EquivalentAmount, StringFormat=等值金额：{0:F1}}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
+                                <TextBlock HorizontalAlignment="Right"
+                                           Text="{Binding TotalExchangedCoins, StringFormat=合计讯币：{0:F0}}"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
                             </Grid>
 
-                            <TextBlock Grid.Row="1"
-                                       Text="{Binding ExchangeSettingsHint}"
-                                       Foreground="#FFDC2626"
-                                       FontSize="14"
-                                       FontWeight="SemiBold"
-                                       Visibility="{Binding IsExchangeSettingsHintVisible, Converter={StaticResource BoolToVisibilityConverter}}"
-                                       Margin="0,0,0,8"
-                                       TextWrapping="Wrap"/>
-
-                            <Border Grid.Row="2" BorderBrush="#FF707070" BorderThickness="1">
-                                <DataGrid ItemsSource="{Binding ExchangeRecords}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                            <Grid Grid.Row="1">
+                                <TextBlock Text="当前无提现记录"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#FF6B7280"
+                                           FontSize="15"
+                                           Visibility="{Binding IsWithdrawDetailEmpty, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <Border BorderBrush="#FF707070" BorderThickness="1"
+                                        Visibility="{Binding IsWithdrawDetailEmpty, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                <DataGrid ItemsSource="{Binding WithdrawDetailItems}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
                                           GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36">
                                     <DataGrid.Resources>
                                         <Style TargetType="DataGridColumnHeader">
@@ -104,10 +98,18 @@
                                         </Style>
                                     </DataGrid.Resources>
                                     <DataGrid.Columns>
+                                        <DataGridTextColumn Header="序号" Binding="{Binding RowIndex}" Width="56" IsReadOnly="True">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
                                         <DataGridTextColumn Header="账号" Binding="{Binding Account}" Width="1.2*"/>
-                                        <DataGridTextColumn Header="兑换积分" Binding="{Binding Points}" Width="1.8*"/>
-                                        <DataGridTextColumn Header="剩余积分" Binding="{Binding RemainingPoints}" Width="1.2*"/>
+                                        <DataGridTextColumn Header="兑换积分" Binding="{Binding Points}" Width="1*"/>
+                                        <DataGridTextColumn Header="剩余积分" Binding="{Binding RemainingPoints}" Width="1*"/>
                                         <DataGridTextColumn Header="已兑讯币" Binding="{Binding ExchangedCoins}" Width="1*"/>
+                                        <DataGridTextColumn Header="手续费" Binding="{Binding Fee}" Width="1*"/>
                                         <DataGridTextColumn Header="兑换状态" Binding="{Binding Status}" Width="1*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
@@ -127,17 +129,7 @@
                                         </DataGridTextColumn>
                                     </DataGrid.Columns>
                                 </DataGrid>
-                            </Border>
-
-                            <Grid Grid.Row="3" Margin="0,10,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <CheckBox Content="兑换完成后自动提现" IsChecked="{Binding AutoWithdrawAfterExchange}" VerticalAlignment="Center" FontSize="14"/>
-                                <Button Grid.Column="1" Content="停止" Command="{Binding StopCommand}" Margin="0,0,8,0" Padding="18,8" FontSize="14"/>
-                                <Button Grid.Column="2" Content="自动兑换" Command="{Binding AutoExchangeCommand}" Padding="18,8" FontSize="14" Background="#FF1BA8EA" Foreground="White"/>
+                                </Border>
                             </Grid>
                         </Grid>
 
@@ -167,16 +159,43 @@
                         </Grid>
 
                         <Grid Visibility="{Binding IsWithdrawRecordsPage, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <StackPanel>
-                                
-                                <DataGrid ItemsSource="{Binding WithdrawRecords}" AutoGenerateColumns="False" IsReadOnly="True">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
+                                <TextBlock HorizontalAlignment="Right"
+                                           Text="{Binding WithdrawRecordsTotalDisplay}"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border Grid.Row="1" BorderBrush="#FF707070" BorderThickness="1">
+                                <DataGrid ItemsSource="{Binding WithdrawRecords}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                          GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36">
+                                    <DataGrid.Resources>
+                                        <Style TargetType="DataGridColumnHeader">
+                                            <Setter Property="Background" Value="#FF15A8E9"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Setter Property="Height" Value="36"/>
+                                            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        </Style>
+                                    </DataGrid.Resources>
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="时间" Binding="{Binding Time}" Width="2*"/>
-                                        <DataGridTextColumn Header="金额" Binding="{Binding Amount}" Width="*"/>
-                                        <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="*"/>
+                                        <DataGridTextColumn Header="序号" Binding="{Binding RowIndex}" Width="56" IsReadOnly="True">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="时间" Binding="{Binding TimeDisplay}" Width="1.8*"/>
+                                        <DataGridTextColumn Header="处理账号数" Binding="{Binding ProcessedAccountCount}" Width="1*"/>
+                                        <DataGridTextColumn Header="金额" Binding="{Binding Amount, StringFormat=F0}" Width="1*"/>
                                     </DataGrid.Columns>
                                 </DataGrid>
-                            </StackPanel>
+                            </Border>
                         </Grid>
 
                         <Grid Visibility="{Binding IsSubscribePage, Converter={StaticResource BoolToVisibilityConverter}}">

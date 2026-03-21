@@ -21,3 +21,13 @@ public sealed class BoolToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         value is Visibility v && v == Visibility.Visible;
 }
+
+/// <summary>True → Collapsed，False → Visible（用于「无数据」为 true 时隐藏表格等）。</summary>
+public sealed class InverseBooleanToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}

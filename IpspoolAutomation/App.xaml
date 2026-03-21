@@ -10,6 +10,7 @@
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
             <local:InverseBoolConverter xmlns:local="clr-namespace:IpspoolAutomation.Converters" x:Key="InverseBoolConverter"/>
+            <local:InverseBooleanToVisibilityConverter xmlns:local="clr-namespace:IpspoolAutomation.Converters" x:Key="InverseBooleanToVisibilityConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

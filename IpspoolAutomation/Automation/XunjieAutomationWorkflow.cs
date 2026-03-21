@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Windows.Automation;
+using IpspoolAutomation.Models;
 using IpspoolAutomation.Models.Capture;
 using IpspoolAutomation.Services;
 
@@ -6,7 +8,8 @@ namespace IpspoolAutomation.Automation;
 
 public class XunjieAutomationWorkflow
 {
-    private const double WithdrawFeeRatio = 0.05;
+    /// <summary>手续费比例：手续费 = 兑换积分 × WithdrawFeeRatio（与 ComputeWithdrawAmountCoins 内一致）。</summary>
+    public const double WithdrawFeeRatio = 0.05;
     private static readonly int[] WithdrawOptions = { 1000, 500, 300, 200, 100 };
     private const int ScoreToCoinRatio = 1000;
 
@@ -65,7 +68,7 @@ public class XunjieAutomationWorkflow
     /// <summary>
     /// 执行 Notion《自动化操作步骤》：筛选可提收益 &gt; 105000 的账号，依次「显示此号」后在商家端讯币兑现与会员中心提现。
     /// </summary>
-    public async Task RunWithdrawAsync(
+    public async Task<WithdrawRunResult?> RunWithdrawAsync(
         IProgress<string> progress,
         string recipientPhone,
         string withdrawName,
@@ -76,7 +79,7 @@ public class XunjieAutomationWorkflow
         if (string.IsNullOrWhiteSpace(recipientPhone))
         {
             progress.Report("未设置收款人手机号：请在「设置」中填写「收款人手机号」并保存。");
-            return;
+            return null;
         }
 
         progress.Report("正在启动/附着迅捷小辅助...");
@@ -84,7 +87,7 @@ public class XunjieAutomationWorkflow
         if (helperRoot == null)
         {
             progress.Report("无法找到或启动迅捷小辅助窗口。");
-            return;
+            return null;
         }
         await Task.Delay(400, cancellationToken).ConfigureAwait(false);
 
@@ -96,8 +99,13 @@ public class XunjieAutomationWorkflow
         if (candidates.Count == 0)
         {
             progress.Report("没有需要处理的账号，结束。");
-            return;
+            return null;
         }
+
+        var sw = Stopwatch.StartNew();
+        var processedCount = 0;
+        long totalCoins = 0;
+        var detailRows = new List<WithdrawDetailItem>();
 
         foreach (var c in candidates)
         {
@@ -113,12 +121,12 @@ public class XunjieAutomationWorkflow
             helperRoot = _automation.LaunchOrAttach(_helperPath) ?? helperRoot;
 
             var merchantPidsBeforeShow = _automation.EnumerateMainWindowProcessIds(_merchantPath);
-            progress.Report($"「显示此号」前已存在的商家版进程数：{merchantPidsBeforeShow.Count}。");
+            AutomationDevLog.Report(progress, $"「显示此号」前已存在的商家版进程数：{merchantPidsBeforeShow.Count}。");
 
             if (!await ShowAccountOnMerchantAsync(helperRoot, c, progress, cancellationToken).ConfigureAwait(false))
                 continue;
 
-            progress.Report("正在附着当前账号对应的迅捷云商家版窗口（多实例时优先新进程，其次前台窗口）…");
+            AutomationDevLog.Report(progress, "正在附着当前账号对应的迅捷云商家版窗口（多实例时优先新进程，其次前台窗口）…");
             var merchantRoot = _automation.AttachMerchantAfterShowAccount(_merchantPath, merchantPidsBeforeShow);
             if (merchantRoot == null)
             {
@@ -154,10 +162,32 @@ public class XunjieAutomationWorkflow
             progress.Report(minimized
                 ? $"已最小化商家窗口（rowID={c.RowId}），继续下一账号。"
                 : $"尝试最小化商家窗口失败（rowID={c.RowId}），窗口可能被目标程序拦截。");
+            detailRows.Add(CreateWithdrawDetailItem(c.Username, c.Score, coins));
+            processedCount++;
+            totalCoins += coins;
             await Task.Delay(300, cancellationToken).ConfigureAwait(false);
         }
 
-        progress.Report("自动提现流程全部结束。");
+        var elapsedSeconds = sw.Elapsed.TotalSeconds;
+        progress.Report($"自动提现流程全部结束。共处理{processedCount}个账号，共计：{totalCoins}讯币，耗时：{elapsedSeconds:F1}秒");
+        return new WithdrawRunResult(processedCount, totalCoins, elapsedSeconds, detailRows);
+    }
+
+    /// <summary>兑换积分 = 讯币对应积分；手续费 = 兑换积分 × WithdrawFeeRatio（取整与流程一致）。</summary>
+    public static WithdrawDetailItem CreateWithdrawDetailItem(string username, int score, int coins)
+    {
+        var coinCostPoints = coins * ScoreToCoinRatio;
+        var feePoints = (int)Math.Round(coinCostPoints * WithdrawFeeRatio, MidpointRounding.AwayFromZero);
+        var remaining = score - coinCostPoints - feePoints;
+        return new WithdrawDetailItem
+        {
+            Account = username,
+            Points = coinCostPoints,
+            Fee = feePoints,
+            RemainingPoints = remaining,
+            ExchangedCoins = coins,
+            Status = "成功"
+        };
     }
 
     private async Task<bool> ExecuteConfiguredMerchantActionsAsync(
@@ -174,7 +204,7 @@ public class XunjieAutomationWorkflow
         if (steps.Count == 0)
             return false;
 
-        progress.Report($"检测到捕捉设置，共 {steps.Count} 步，按配置执行商家操作。");
+        AutomationDevLog.Report(progress, $"检测到捕捉设置，共 {steps.Count} 步，按配置执行商家操作。");
         foreach (var step in steps)
         {
             ct.ThrowIfCancellationRequested();
@@ -184,7 +214,7 @@ public class XunjieAutomationWorkflow
                 return false;
             }
 
-            if (!ExecuteStepAction(step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, progress))
+            if (!ExecuteStepAction(merchantRoot, step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, progress))
             {
                 progress.Report($"配置步骤#{step.TargetID} 执行失败（action={step.Action}）。");
                 return false;
@@ -192,7 +222,7 @@ public class XunjieAutomationWorkflow
             await Task.Delay(180, ct).ConfigureAwait(false);
         }
 
-        progress.Report("已按捕捉设置完成商家窗口操作。");
+        AutomationDevLog.Report(progress, "已按捕捉设置完成商家窗口操作。");
         return true;
     }
 
@@ -223,6 +253,7 @@ public class XunjieAutomationWorkflow
     }
 
     private bool ExecuteStepAction(
+        AutomationElement merchantRoot,
         CaptureTargetItem step,
         AutomationElement? target,
         AutomationElement? anchor,
@@ -239,7 +270,7 @@ public class XunjieAutomationWorkflow
             if (wx <= 0 || wy <= 0)
                 return false;
             _automation.LeftClickAt(wx, wy);
-            progress.Report($"步骤#{step.TargetID} window 偏移动作完成，坐标=({wx},{wy})。");
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} window 偏移动作完成，坐标=({wx},{wy})。");
             if (action != "moveTo_click_input")
                 return true;
 
@@ -250,7 +281,7 @@ public class XunjieAutomationWorkflow
             if (inputTarget == null)
                 return false;
             _automation.SetEditValue(inputTarget, inputValueByWindow);
-            progress.Report($"步骤#{step.TargetID} window 输入完成，值={inputValueByWindow}。");
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} window 输入完成，值={inputValueByWindow}。");
             return true;
         }
 
@@ -259,7 +290,24 @@ public class XunjieAutomationWorkflow
             if (target == null)
                 return false;
             _automation.LeftClickElement(target);
-            progress.Report($"步骤#{step.TargetID} click 完成。");
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} click 完成。");
+            return true;
+        }
+
+        if (action == "click_select")
+        {
+            if (target == null)
+                return false;
+            var selectText = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount);
+            if (string.IsNullOrWhiteSpace(selectText))
+            {
+                progress.Report($"配置步骤#{step.TargetID} 动作 click_select 需要填写「输入值」（或与选项文案一致）。");
+                return false;
+            }
+
+            if (!_automation.TrySelectComboBoxByDisplayText(target, selectText, merchantRoot))
+                return false;
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} click_select 已选择：{selectText}。");
             return true;
         }
 
@@ -269,7 +317,7 @@ public class XunjieAutomationWorkflow
         if (x <= 0 || y <= 0)
             return false;
         _automation.LeftClickAt(x, y);
-        progress.Report($"步骤#{step.TargetID} {action} 偏移点击完成，坐标=({x},{y})。");
+        AutomationDevLog.Report(progress, $"步骤#{step.TargetID} {action} 偏移点击完成，坐标=({x},{y})。");
 
         if (action != "moveTo_click_input")
             return true;
@@ -278,7 +326,7 @@ public class XunjieAutomationWorkflow
         if (target == null || string.IsNullOrEmpty(inputValue))
             return false;
         _automation.SetEditValue(target, inputValue);
-        progress.Report($"步骤#{step.TargetID} 输入完成，值={inputValue}。");
+        AutomationDevLog.Report(progress, $"步骤#{step.TargetID} 输入完成，值={inputValue}。");
         return true;
     }
 
@@ -288,6 +336,9 @@ public class XunjieAutomationWorkflow
             return "moveTo_click_input";
         if (string.Equals(action, "moveTo_click", StringComparison.OrdinalIgnoreCase))
             return "moveTo_click";
+        if (string.Equals(action, "click_select", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(action, "click_slecect", StringComparison.OrdinalIgnoreCase))
+            return "click_select";
         return "click";
     }
 
@@ -525,23 +576,23 @@ fallbackNearest:
 
         if (_automation.IsElementVisibleInViewport(row))
         {
-            progress.Report($"rowID={candidate.RowId} 已在可视范围内，无需滚动。");
+            AutomationDevLog.Report(progress, $"rowID={candidate.RowId} 已在可视范围内，无需滚动。");
         }
         else
         {
             var ensuredVisible = _automation.TryEnsureDataItemVisible(row);
-            progress.Report(ensuredVisible
+            AutomationDevLog.Report(progress, ensuredVisible
                 ? $"rowID={candidate.RowId} 原本不可视，已滚动到可视范围。"
                 : $"rowID={candidate.RowId} 不可视且滚动未能保证可视，继续尝试直接操作。");
         }
 
         _automation.LeftClickElement(row);
         var (clickX, clickY) = GetElementCenter(row);
-        progress.Report($"rowID={candidate.RowId} 已左键选中目标行，坐标=({clickX},{clickY})。");
+        AutomationDevLog.Report(progress, $"rowID={candidate.RowId} 已左键选中目标行，坐标=({clickX},{clickY})。");
         await Task.Delay(80, ct).ConfigureAwait(false);
 
         _automation.RightClickElement(row);
-        progress.Report($"rowID={candidate.RowId} 已在目标行执行右键，坐标=({clickX},{clickY})。");
+        AutomationDevLog.Report(progress, $"rowID={candidate.RowId} 已在目标行执行右键，坐标=({clickX},{clickY})。");
         await Task.Delay(280, ct).ConfigureAwait(false);
         var menuItem = _automation.FindMenuItem("显示此号");
         if (menuItem == null)
@@ -587,7 +638,7 @@ fallbackNearest:
             return false;
         }
         _automation.InvokeButton(ok);
-        progress.Report("已提交讯币兑现。");
+        AutomationDevLog.Report(progress, "已提交讯币兑现。");
         return true;
     }
 
@@ -662,7 +713,7 @@ fallbackNearest:
             return false;
         }
         _automation.InvokeButton(ok);
-        progress.Report("已提交会员中心转账。");
+        AutomationDevLog.Report(progress, "已提交会员中心转账。");
         return true;
     }
 
@@ -708,7 +759,7 @@ fallbackNearest:
                     sip.Select();
                 else
                     _automation.InvokeButton(tab);
-                progress.Report($"已通过 TabItem 切换到「{nameContains}」。");
+                AutomationDevLog.Report(progress, $"已通过 TabItem 切换到「{nameContains}」。");
                 return true;
             }
             catch
@@ -716,7 +767,7 @@ fallbackNearest:
                 try
                 {
                     _automation.InvokeButton(tab);
-                    progress.Report($"已通过 TabItem(Invoke) 切换到「{nameContains}」。");
+                    AutomationDevLog.Report(progress, $"已通过 TabItem(Invoke) 切换到「{nameContains}」。");
                     return true;
                 }
                 catch { /* ignore */ }
@@ -730,7 +781,7 @@ fallbackNearest:
             try
             {
                 _automation.LeftClickElement(btn);
-                progress.Report($"已通过 Button 文本匹配切换到「{nameContains}」。");
+                AutomationDevLog.Report(progress, $"已通过 Button 文本匹配切换到「{nameContains}」。");
                 return true;
             }
             catch { /* ignore */ }
@@ -738,7 +789,7 @@ fallbackNearest:
             try
             {
                 _automation.InvokeButton(btn);
-                progress.Report($"已通过 Button Invoke 切换到「{nameContains}」。");
+                AutomationDevLog.Report(progress, $"已通过 Button Invoke 切换到「{nameContains}」。");
                 return true;
             }
             catch { /* ignore */ }
@@ -752,7 +803,7 @@ fallbackNearest:
             try
             {
                 _automation.LeftClickElement(textOrCustom);
-                progress.Report($"已通过 Text/Custom 命中切换到「{nameContains}」。");
+                AutomationDevLog.Report(progress, $"已通过 Text/Custom 命中切换到「{nameContains}」。");
                 return true;
             }
             catch { /* ignore */ }
@@ -762,7 +813,7 @@ fallbackNearest:
                 if (parent != null)
                 {
                     _automation.LeftClickElement(parent);
-                    progress.Report($"已通过 Text/Custom 父容器点击切换到「{nameContains}」。");
+                    AutomationDevLog.Report(progress, $"已通过 Text/Custom 父容器点击切换到「{nameContains}」。");
                     return true;
                 }
             }
@@ -784,7 +835,7 @@ fallbackNearest:
                     : ax - 110;
                 var ty = ay;
                 _automation.LeftClickAt(tx, ty);
-                progress.Report($"已通过锚点偏移点击切换到「{nameContains}」，点击坐标=({tx},{ty})。");
+                AutomationDevLog.Report(progress, $"已通过锚点偏移点击切换到「{nameContains}」，点击坐标=({tx},{ty})。");
                 return true;
             }
         }
@@ -801,7 +852,7 @@ fallbackNearest:
                     ? (int)(wr.Left + 470)
                     : (int)(wr.Left + 380);
                 _automation.LeftClickAt(x, y);
-                progress.Report($"已通过窗口偏移兜底点击切换到「{nameContains}」，点击坐标=({x},{y})。");
+                AutomationDevLog.Report(progress, $"已通过窗口偏移兜底点击切换到「{nameContains}」，点击坐标=({x},{y})。");
                 return true;
             }
         }

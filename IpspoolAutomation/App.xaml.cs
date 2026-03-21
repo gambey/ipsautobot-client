@@ -86,7 +86,9 @@ public partial class App : Application
         var config = new AppConfig();
         var automationService = new UIAutomationService();
         var captureTargetSettingsService = new CaptureTargetSettingsService();
-        var vm = new MainViewModel(_authService!, config, automationService, captureTargetSettingsService);
+        var withdrawRecordsService = new WithdrawRecordsService();
+        var withdrawDailyService = new WithdrawDailyService();
+        var vm = new MainViewModel(_authService!, config, automationService, captureTargetSettingsService, withdrawRecordsService, withdrawDailyService);
         vm.SetOnLogout(() =>
         {
             mainWindow.Hide();

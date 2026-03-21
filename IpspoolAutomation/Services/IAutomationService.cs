@@ -29,4 +29,9 @@ public interface IAutomationService
     void LeftClickElement(AutomationElement element);
     void LeftClickAt(int x, int y);
     void RightClickElement(AutomationElement element);
+
+    /// <summary>
+    /// 在下拉框中选择显示文本与 <paramref name="displayText"/> 匹配的项（先 ValuePattern，再展开后选 ListItem）。
+    /// </summary>
+    bool TrySelectComboBoxByDisplayText(AutomationElement combo, string displayText, AutomationElement? searchWithin = null);
 }

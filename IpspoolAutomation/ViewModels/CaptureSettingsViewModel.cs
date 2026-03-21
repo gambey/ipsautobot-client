@@ -15,7 +15,7 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
 
     public ObservableCollection<CaptureTargetItemRowViewModel> CaptureTargets { get; } = new();
     public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "window" };
-    public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input" };
+    public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input", "click_select" };
 
     public CaptureSettingsViewModel(
         ICaptureTargetSettingsService settingsService,
@@ -156,6 +156,9 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
             string.Equals(value, "moveTo_click_input", StringComparison.Ordinal) ||
             string.Equals(value, "moveTo_click_inp", StringComparison.Ordinal))
             return "moveTo_click_input";
+        if (string.Equals(value, "click_select", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "click_slecect", StringComparison.OrdinalIgnoreCase))
+            return "click_select";
         return "click";
     }
 }
