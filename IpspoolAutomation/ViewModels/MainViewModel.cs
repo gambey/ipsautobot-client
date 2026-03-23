@@ -11,6 +11,7 @@ using IpspoolAutomation.Models.Capture;
 using IpspoolAutomation.Services;
 using IpspoolAutomation.Views;
 using Microsoft.Win32;
+using System.Windows.Threading;
 
 namespace IpspoolAutomation.ViewModels;
 
@@ -20,11 +21,15 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IAppConfig _config;
     private readonly IAutomationService _automationService;
     private readonly ICaptureTargetSettingsService _captureTargetSettingsService;
+    private readonly IDailyCheckExeService _dailyCheckExeService;
+    private readonly IDailyCheckSettingsService _dailyCheckSettingsService;
     private readonly IWithdrawRecordsService _withdrawRecordsService;
     private readonly IWithdrawDailyService _withdrawDailyService;
     private CancellationTokenSource? _cts;
     private Action? _onLogout;
-    private Action? _onOpenSubscribe;
+    private readonly DispatcherTimer _checkinScheduler = new() { Interval = TimeSpan.FromSeconds(15) };
+    private DateTime? _nextScheduledCheckinAt;
+    private DateOnly? _lastAutoCheckinDate;
 
     [ObservableProperty] private string _userInfo = "";
     [ObservableProperty] private string _logText = "";
@@ -39,8 +44,14 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private decimal _totalExchangedCoins;
 
     [ObservableProperty] private string _withdrawStatusMessage = "提现流程待接入自动化步骤。";
-    [ObservableProperty] private string _subscribePlan = "Monthly";
-    [ObservableProperty] private string _subscribeStatusMessage = "";
+    [ObservableProperty] private string _checkinMode = "Cancel";
+    [ObservableProperty] private bool _isImmediateCheckinMode;
+    [ObservableProperty] private bool _isScheduledCheckinMode;
+    [ObservableProperty] private bool _isCancelCheckinMode = true;
+    [ObservableProperty] private string _checkinStartTime = "07:00";
+    [ObservableProperty] private string _checkinStatusMessage = "";
+    [ObservableProperty] private string _checkinLogText = "";
+    [ObservableProperty] private string _nextCheckinAtText = "--";
     [ObservableProperty] private string _merchantPath = "";
     [ObservableProperty] private string _helperPath = "";
     [ObservableProperty] private string _withdrawName = "";
@@ -58,6 +69,10 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<WithdrawDetailItem> WithdrawDetailItems { get; } = new();
     public ObservableCollection<WithdrawRecordItem> WithdrawRecords { get; } = new();
     public ObservableCollection<CaptureTargetItem> CaptureTargetList { get; } = new();
+    public ObservableCollection<CaptureTargetItem> DailyCheckTargetList { get; } = new();
+    public ObservableCollection<string> CheckinLogLines { get; } = new();
+    public IReadOnlyList<string> CheckinTimeOptions { get; } =
+        Enumerable.Range(7, 16).Select(h => $"{h:00}:00").ToList();
     private static readonly string LocalSettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "IpspoolAutomation",
@@ -68,6 +83,8 @@ public sealed partial class MainViewModel : ObservableObject
         IAppConfig config,
         IAutomationService automationService,
         ICaptureTargetSettingsService captureTargetSettingsService,
+        IDailyCheckExeService dailyCheckExeService,
+        IDailyCheckSettingsService dailyCheckSettingsService,
         IWithdrawRecordsService withdrawRecordsService,
         IWithdrawDailyService withdrawDailyService)
     {
@@ -75,6 +92,8 @@ public sealed partial class MainViewModel : ObservableObject
         _config = config;
         _automationService = automationService;
         _captureTargetSettingsService = captureTargetSettingsService;
+        _dailyCheckExeService = dailyCheckExeService;
+        _dailyCheckSettingsService = dailyCheckSettingsService;
         _withdrawRecordsService = withdrawRecordsService;
         _withdrawDailyService = withdrawDailyService;
         UserInfo = _authService.UserName ?? "用户";
@@ -82,24 +101,26 @@ public sealed partial class MainViewModel : ObservableObject
         HelperPath = _config.XunjieHelperPath;
         LoadLocalSettings();
         LoadCaptureTargetSettings();
+        LoadDailyCheckExeSettings();
+        LoadDailyCheckSettings();
         LoadWithdrawRecords();
         LoadWithdrawDaily();
+        if (string.IsNullOrWhiteSpace(CheckinMode))
+            CheckinMode = "Cancel";
+        _checkinScheduler.Tick += OnCheckinSchedulerTick;
+        _checkinScheduler.Start();
+        RefreshCheckinSchedule();
     }
 
     public void SetOnLogout(Action callback) => _onLogout = callback;
-    public void SetOnOpenSubscribe(Action callback) => _onOpenSubscribe = callback;
 
     public bool IsWithdrawDetailPage => CurrentPage == "提现详情";
     public bool IsWithdrawPage => CurrentPage == "提现";
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
-    public bool IsSubscribePage => CurrentPage == "订阅";
+    public bool IsCheckinPage => CurrentPage == "签到";
     public bool IsSettingsPage => CurrentPage == "设置";
-
-    [RelayCommand]
-    private void OpenSubscribe()
-    {
-        _onOpenSubscribe?.Invoke();
-    }
+    public bool IsExecuteEnabled => IsImmediateCheckinMode;
+    public bool IsScheduleEnabled => IsScheduledCheckinMode;
 
     [RelayCommand]
     private void GoWithdraw() => SetCurrentPage("提现");
@@ -111,15 +132,91 @@ public sealed partial class MainViewModel : ObservableObject
     private void GoWithdrawRecords() => SetCurrentPage("提现记录");
 
     [RelayCommand]
-    private void GoSubscribe() => SetCurrentPage("订阅");
+    private void GoCheckin() => SetCurrentPage("签到");
 
     [RelayCommand]
     private void GoSettings() => SetCurrentPage("设置");
 
     [RelayCommand]
-    private void GoSubscribeNow()
+    private async Task ExecuteCheckin()
     {
-        SetCurrentPage("Subscribe");
+        if (IsCancelCheckinMode)
+        {
+            CheckinStatusMessage = "已选择取消签到，不执行任何签到动作。";
+            return;
+        }
+        if (!IsImmediateCheckinMode)
+        {
+            CheckinStatusMessage = "仅在立刻签到模式下可执行。";
+            return;
+        }
+
+        if (IsRunning)
+            return;
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            CheckinStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+        if (DailyCheckTargetList.Count == 0)
+        {
+            CheckinStatusMessage = "请先配置签到设置步骤。";
+            return;
+        }
+
+        CheckinStatusMessage = "正在执行签到流程…";
+        await RunDailyCheckInternalAsync(isManual: true).ConfigureAwait(true);
+    }
+
+    private async Task RunDailyCheckInternalAsync(bool isManual)
+    {
+        IsRunning = true;
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        if (isManual)
+        {
+            CheckinLogLines.Clear();
+            CheckinLogText = "";
+        }
+        _cts = new CancellationTokenSource();
+        var progress = new Progress<string>(s =>
+        {
+            var line = FormatCheckinLogLine(s);
+            if (string.IsNullOrWhiteSpace(line))
+                return;
+            CheckinLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+            CheckinLogText = string.Join(Environment.NewLine, CheckinLogLines);
+        });
+        try
+        {
+            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            var success = await workflow.RunDailyCheckAsync(progress, DailyCheckTargetList.ToList(), _cts.Token).ConfigureAwait(true);
+            CheckinStatusMessage = $"签到流程结束，成功处理账号：{success}。";
+            if (IsScheduledCheckinMode)
+            {
+                _nextScheduledCheckinAt = BuildNextScheduledRun(DateTime.Now, CheckinStartTime);
+                NextCheckinAtText = _nextScheduledCheckinAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "--";
+                CheckinStatusMessage += $" 下次计划时间：{_nextScheduledCheckinAt:HH:mm:ss}";
+                if (!isManual)
+                    _lastAutoCheckinDate = DateOnly.FromDateTime(DateTime.Now);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            CheckinStatusMessage = "已取消签到流程。";
+        }
+        catch (Exception ex)
+        {
+            CheckinStatusMessage = $"签到流程异常：{ex.Message}";
+            CheckinLogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex.Message}");
+            CheckinLogText = string.Join(Environment.NewLine, CheckinLogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
@@ -182,12 +279,35 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void ConfirmSubscribe()
+    private void SaveDailyCheckSettings()
     {
-        SubscribeStatusMessage = SubscribePlan == "Yearly"
-            ? "已选择按年订阅，待接入支付二维码逻辑。"
-            : "已选择按月订阅，待接入支付二维码逻辑。";
-        _onOpenSubscribe?.Invoke();
+        try
+        {
+            _dailyCheckSettingsService.Save(new DailyCheckSettingsData
+            {
+                Mode = CheckinMode,
+                StartTime = CheckinStartTime
+            });
+            RefreshCheckinSchedule();
+
+            if (IsScheduledCheckinMode)
+            {
+                var scheduled = _nextScheduledCheckinAt ?? BuildNextScheduledRun(DateTime.Now, CheckinStartTime);
+                CheckinStatusMessage = $"签到设置已保存：定时签到，基础时间 {CheckinStartTime}，本次计划时间 {scheduled:HH:mm:ss}。";
+            }
+            else if (IsCancelCheckinMode)
+            {
+                CheckinStatusMessage = "签到设置已保存：取消签到。";
+            }
+            else
+            {
+                CheckinStatusMessage = "签到设置已保存：立刻签到。";
+            }
+        }
+        catch (Exception ex)
+        {
+            CheckinStatusMessage = $"保存签到设置失败：{ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -261,6 +381,19 @@ public sealed partial class MainViewModel : ObservableObject
         LoadCaptureTargetSettings();
     }
 
+    [RelayCommand]
+    private void OpenDailyCheckSettings()
+    {
+        var vm = new DailyCheckSettingsViewModel(_dailyCheckExeService, DailyCheckTargetList);
+        var window = new DailyCheckSettingsWindow
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        LoadDailyCheckExeSettings();
+    }
+
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop()
     {
@@ -282,8 +415,41 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWithdrawDetailPage));
         OnPropertyChanged(nameof(IsWithdrawPage));
         OnPropertyChanged(nameof(IsWithdrawRecordsPage));
-        OnPropertyChanged(nameof(IsSubscribePage));
+        OnPropertyChanged(nameof(IsCheckinPage));
         OnPropertyChanged(nameof(IsSettingsPage));
+    }
+
+    partial void OnCheckinModeChanged(string value)
+    {
+        var immediate = string.Equals(value, "Immediate", StringComparison.Ordinal);
+        var scheduled = string.Equals(value, "Scheduled", StringComparison.Ordinal);
+        var cancel = string.Equals(value, "Cancel", StringComparison.Ordinal);
+        if (IsImmediateCheckinMode != immediate) IsImmediateCheckinMode = immediate;
+        if (IsScheduledCheckinMode != scheduled) IsScheduledCheckinMode = scheduled;
+        if (IsCancelCheckinMode != cancel) IsCancelCheckinMode = cancel;
+        OnPropertyChanged(nameof(IsExecuteEnabled));
+        OnPropertyChanged(nameof(IsScheduleEnabled));
+        RefreshCheckinSchedule();
+    }
+
+    partial void OnIsImmediateCheckinModeChanged(bool value)
+    {
+        if (value) CheckinMode = "Immediate";
+    }
+
+    partial void OnIsScheduledCheckinModeChanged(bool value)
+    {
+        if (value) CheckinMode = "Scheduled";
+    }
+
+    partial void OnIsCancelCheckinModeChanged(bool value)
+    {
+        if (value) CheckinMode = "Cancel";
+    }
+
+    partial void OnCheckinStartTimeChanged(string value)
+    {
+        RefreshCheckinSchedule();
     }
 
     private void SetCurrentPage(string page)
@@ -349,6 +515,113 @@ public sealed partial class MainViewModel : ObservableObject
         {
             SettingsSaveStatus = $"读取捕捉设置失败：{ex.Message}";
         }
+    }
+
+    private void LoadDailyCheckExeSettings()
+    {
+        try
+        {
+            var settings = _dailyCheckExeService.Load();
+            DailyCheckTargetList.Clear();
+            foreach (var item in settings.CaptureTargetList.OrderBy(x => x.TargetID))
+                DailyCheckTargetList.Add(item);
+        }
+        catch (Exception ex)
+        {
+            CheckinStatusMessage = $"读取签到流程设置失败：{ex.Message}";
+        }
+    }
+
+    private void LoadDailyCheckSettings()
+    {
+        try
+        {
+            var data = _dailyCheckSettingsService.Load();
+            var mode = data.Mode?.Trim() ?? "";
+            if (string.Equals(mode, "Scheduled", StringComparison.OrdinalIgnoreCase))
+                CheckinMode = "Scheduled";
+            else if (string.Equals(mode, "Cancel", StringComparison.OrdinalIgnoreCase))
+                CheckinMode = "Cancel";
+            else
+                CheckinMode = "Cancel";
+
+            if (!string.IsNullOrWhiteSpace(data.StartTime) && CheckinTimeOptions.Contains(data.StartTime))
+                CheckinStartTime = data.StartTime;
+            else if (string.IsNullOrWhiteSpace(CheckinStartTime))
+                CheckinStartTime = "07:00";
+            RefreshCheckinSchedule();
+        }
+        catch (Exception ex)
+        {
+            CheckinStatusMessage = $"读取签到配置失败：{ex.Message}";
+        }
+    }
+
+    private void RefreshCheckinSchedule()
+    {
+        if (!IsScheduledCheckinMode)
+        {
+            _nextScheduledCheckinAt = null;
+            NextCheckinAtText = "--";
+            return;
+        }
+
+        _nextScheduledCheckinAt = BuildNextScheduledRun(DateTime.Now, CheckinStartTime);
+        NextCheckinAtText = _nextScheduledCheckinAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "--";
+    }
+
+    private async void OnCheckinSchedulerTick(object? sender, EventArgs e)
+    {
+        if (!IsScheduledCheckinMode || _nextScheduledCheckinAt == null)
+            return;
+        if (IsRunning)
+            return;
+        if (DateTime.Now < _nextScheduledCheckinAt.Value)
+            return;
+        if (_lastAutoCheckinDate.HasValue && _lastAutoCheckinDate.Value == DateOnly.FromDateTime(DateTime.Now))
+        {
+            _nextScheduledCheckinAt = BuildNextScheduledRun(DateTime.Now.AddDays(1), CheckinStartTime);
+            NextCheckinAtText = _nextScheduledCheckinAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "--";
+            CheckinStatusMessage = $"今日已自动签到一次，下一次计划时间：{_nextScheduledCheckinAt:yyyy-MM-dd HH:mm:ss}";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+            return;
+        if (DailyCheckTargetList.Count == 0)
+            return;
+
+        CheckinStatusMessage = $"到达计划时间（{_nextScheduledCheckinAt:HH:mm:ss}），开始自动签到…";
+        await RunDailyCheckInternalAsync(isManual: false).ConfigureAwait(true);
+    }
+
+    private static DateTime BuildNextScheduledRun(DateTime now, string startTime)
+    {
+        var hhmm = (startTime ?? "").Trim();
+        if (!TimeSpan.TryParse(hhmm, out var ts))
+            ts = TimeSpan.FromHours(7);
+        var baseTime = new DateTime(now.Year, now.Month, now.Day, ts.Hours, ts.Minutes, 0, now.Kind);
+        if (baseTime <= now)
+            baseTime = baseTime.AddDays(1);
+        var offsetSeconds = Random.Shared.Next(60, 1801);
+        return baseTime.AddSeconds(offsetSeconds);
+    }
+
+    private static string? FormatCheckinLogLine(string raw)
+    {
+#if DEBUG
+        return raw;
+#else
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+        const string prefix = "正在处理账号：";
+        var idx = raw.IndexOf(prefix, StringComparison.Ordinal);
+        if (idx < 0)
+            return null;
+        var name = raw[(idx + prefix.Length)..].Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+        return $"正在处理账号：{name}";
+#endif
     }
 
     private void LoadWithdrawRecords()

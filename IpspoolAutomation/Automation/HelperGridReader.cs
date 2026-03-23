@@ -136,7 +136,8 @@ internal static class HelperGridReader
 
     internal static List<WithdrawCandidateRow> CollectCandidates(
         AutomationElement helperRoot,
-        IProgress<string>? progress)
+        IProgress<string>? progress,
+        int minScoreExclusive = MinWithdrawableScore)
     {
         var result = new List<WithdrawCandidateRow>();
         var grid = FindMainGrid(helperRoot);
@@ -211,7 +212,7 @@ internal static class HelperGridReader
 
             if (!TryParseScore(scoreText, out var score))
                 continue;
-            if (score <= MinWithdrawableScore)
+            if (score <= minScoreExclusive)
                 continue;
             if (string.IsNullOrWhiteSpace(user))
                 continue;

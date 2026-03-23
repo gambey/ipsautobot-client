@@ -27,7 +27,6 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="去订阅" Command="{Binding GoSubscribeCommand}" Margin="0,0,8,0" Padding="12,6"/>
                     <Button Content="退出登录" Command="{Binding LogoutCommand}" Padding="12,6"/>
                 </StackPanel>
             </Grid>
@@ -45,7 +44,7 @@
                     <Button Content="提现" Command="{Binding GoWithdrawCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现详情" Command="{Binding GoWithdrawDetailCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10"/>
-                    <Button Content="订阅" Command="{Binding GoSubscribeCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <Button Content="签到" Command="{Binding GoCheckinCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="设置" Command="{Binding GoSettingsCommand}" Margin="0,0,0,8" Padding="12,10"/>
                 </StackPanel>
             </Border>
@@ -198,18 +197,56 @@
                             </Border>
                         </Grid>
 
-                        <Grid Visibility="{Binding IsSubscribePage, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <StackPanel>
-                                
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                    <RadioButton Content="按月订阅(30天)" GroupName="SubPlan" IsChecked="True" Margin="0,0,18,0"/>
-                                    <RadioButton Content="按年订阅(365天)" GroupName="SubPlan"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Content="确认并调起支付" Command="{Binding ConfirmSubscribeCommand}" Margin="0,0,8,0" Padding="12,6"/>
-                                    <Button Content="打开订阅窗口" Command="{Binding OpenSubscribeCommand}" Padding="12,6"/>
-                                </StackPanel>
-                                <TextBlock Text="{Binding SubscribeStatusMessage}" Margin="0,10,0,0" Foreground="#FFB45309" TextWrapping="Wrap"/>
+                        <Grid Visibility="{Binding IsCheckinPage, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            
+
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Text="签到方式:" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <RadioButton Content="立刻签到" GroupName="CheckinMode" IsChecked="{Binding IsImmediateCheckinMode}" Margin="0,0,36,0" VerticalAlignment="Center"/>
+                                <RadioButton Content="定时签到" GroupName="CheckinMode" IsChecked="{Binding IsScheduledCheckinMode}" Margin="0,0,36,0" VerticalAlignment="Center"/>
+                                <RadioButton Content="取消签到" GroupName="CheckinMode" IsChecked="{Binding IsCancelCheckinMode}" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,20">
+                                <TextBlock Text="立刻签到:" VerticalAlignment="Center" Width="100"/>
+                                <Button Content="执行" Command="{Binding ExecuteCheckinCommand}" IsEnabled="{Binding IsExecuteEnabled}" Padding="28,6" Margin="0,0,36,0"/>
+                                <TextBlock Text="开始时间" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox Width="120"
+                                          ItemsSource="{Binding CheckinTimeOptions}"
+                                          SelectedItem="{Binding CheckinStartTime}"
+                                          IsEnabled="{Binding IsScheduleEnabled}"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="3" Margin="0,0,0,10">
+                                <TextBlock Text="{Binding CheckinStatusMessage}" Foreground="#FFB45309" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding NextCheckinAtText, StringFormat=下次计划时间：{0}}" Foreground="#FF2563EB" Margin="0,4,0,0"/>
+                            </StackPanel>
+
+                            <TextBox Grid.Row="4"
+                                     Text="{Binding CheckinLogText}"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     AcceptsReturn="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     BorderBrush="#FFE5E7EB"
+                                     BorderThickness="1"
+                                     Padding="8"
+                                     MinHeight="240"/>
+
+                            <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                <Button Content="签到设置" Command="{Binding OpenDailyCheckSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                <Button Content="保存" Command="{Binding SaveDailyCheckSettingsCommand}" Padding="12,6"/>
                             </StackPanel>
                         </Grid>
 

@@ -86,9 +86,19 @@ public partial class App : Application
         var config = new AppConfig();
         var automationService = new UIAutomationService();
         var captureTargetSettingsService = new CaptureTargetSettingsService();
+        var dailyCheckExeService = new DailyCheckExeService();
+        var dailyCheckSettingsService = new DailyCheckSettingsService();
         var withdrawRecordsService = new WithdrawRecordsService();
         var withdrawDailyService = new WithdrawDailyService();
-        var vm = new MainViewModel(_authService!, config, automationService, captureTargetSettingsService, withdrawRecordsService, withdrawDailyService);
+        var vm = new MainViewModel(
+            _authService!,
+            config,
+            automationService,
+            captureTargetSettingsService,
+            dailyCheckExeService,
+            dailyCheckSettingsService,
+            withdrawRecordsService,
+            withdrawDailyService);
         vm.SetOnLogout(() =>
         {
             mainWindow.Hide();
@@ -101,13 +111,6 @@ public partial class App : Application
             };
             loginWindow.Show();
             mainWindow.Close();
-        });
-        vm.SetOnOpenSubscribe(() =>
-        {
-            var subscribeWindow = new SubscribeWindow();
-            subscribeWindow.DataContext = new SubscribeViewModel(_apiClient!);
-            subscribeWindow.Owner = mainWindow;
-            subscribeWindow.ShowDialog();
         });
         return vm;
     }

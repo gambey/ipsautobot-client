@@ -6,19 +6,19 @@ using IpspoolAutomation.Services;
 
 namespace IpspoolAutomation.ViewModels;
 
-public sealed partial class CaptureSettingsViewModel : ObservableObject
+public sealed partial class DailyCheckSettingsViewModel : ObservableObject
 {
-    private readonly ICaptureTargetSettingsService _settingsService;
+    private readonly IDailyCheckExeService _settingsService;
     private Action? _closeAction;
 
     [ObservableProperty] private string _statusMessage = "";
 
-    public ObservableCollection<CaptureTargetItemRowViewModel> CaptureTargets { get; } = new();
+    public ObservableCollection<DailyCheckTargetItemRowViewModel> CaptureTargets { get; } = new();
     public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "window", "dialog" };
     public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
 
-    public CaptureSettingsViewModel(
-        ICaptureTargetSettingsService settingsService,
+    public DailyCheckSettingsViewModel(
+        IDailyCheckExeService settingsService,
         IEnumerable<CaptureTargetItem>? initialItems = null)
     {
         _settingsService = settingsService;
@@ -31,7 +31,7 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
 
         foreach (var item in source.OrderBy(x => x.TargetID))
         {
-            CaptureTargets.Add(new CaptureTargetItemRowViewModel
+            CaptureTargets.Add(new DailyCheckTargetItemRowViewModel
             {
                 TargetID = item.TargetID,
                 TargetType = NormalizeType(item.TargetType),
@@ -54,7 +54,7 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     [RelayCommand]
     private void AddTarget()
     {
-        CaptureTargets.Add(new CaptureTargetItemRowViewModel
+        CaptureTargets.Add(new DailyCheckTargetItemRowViewModel
         {
             TargetID = CaptureTargets.Count + 1,
             TargetType = "text",
@@ -70,14 +70,14 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void InsertTargetBelow(CaptureTargetItemRowViewModel? afterRow)
+    private void InsertTargetBelow(DailyCheckTargetItemRowViewModel? afterRow)
     {
         if (afterRow == null)
             return;
         var index = CaptureTargets.IndexOf(afterRow);
         if (index < 0)
             return;
-        CaptureTargets.Insert(index + 1, new CaptureTargetItemRowViewModel
+        CaptureTargets.Insert(index + 1, new DailyCheckTargetItemRowViewModel
         {
             TargetType = "text",
             AnchorType = "",
@@ -92,7 +92,7 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void DeleteTarget(CaptureTargetItemRowViewModel? item)
+    private void DeleteTarget(DailyCheckTargetItemRowViewModel? item)
     {
         if (item == null)
             return;
@@ -199,7 +199,7 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     }
 }
 
-public sealed partial class CaptureTargetItemRowViewModel : ObservableObject
+public sealed partial class DailyCheckTargetItemRowViewModel : ObservableObject
 {
     [ObservableProperty] private int _targetID;
     [ObservableProperty] private string _targetType = "text";
@@ -213,4 +213,3 @@ public sealed partial class CaptureTargetItemRowViewModel : ObservableObject
     [ObservableProperty] private string _delayMs = "300";
     [ObservableProperty] private string _remark = "";
 }
-

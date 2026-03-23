@@ -16,6 +16,7 @@ public class XunjieAutomationWorkflow
     private readonly IAutomationService _automation;
     private readonly string _helperPath;
     private readonly string _merchantPath;
+    private const int MinDailyCheckScore = 105000;
 
     public XunjieAutomationWorkflow(IAutomationService automation, string helperPath, string merchantPath)
     {
@@ -93,7 +94,7 @@ public class XunjieAutomationWorkflow
 
         cancellationToken.ThrowIfCancellationRequested();
         progress.Report("正在读取辅助软件账号列表...");
-        var raw = HelperGridReader.CollectCandidates(helperRoot, progress);
+        var raw = HelperGridReader.CollectCandidates(helperRoot, progress, HelperGridReader.MinWithdrawableScore);
         var candidates = DeduplicateByUsername(raw);
         progress.Report($"符合条件的账号数（可提收益>{HelperGridReader.MinWithdrawableScore}）：{candidates.Count}");
         if (candidates.Count == 0)
@@ -222,12 +223,81 @@ public class XunjieAutomationWorkflow
                 return false;
             }
             var delayAfterStep = step.DelayMs ?? 300;
+            delayAfterStep += Random.Shared.Next(300, 3001);
             if (delayAfterStep > 0)
                 await Task.Delay(delayAfterStep, ct).ConfigureAwait(false);
         }
 
         AutomationDevLog.Report(progress, "已按捕捉设置完成商家窗口操作。");
         return true;
+    }
+
+    /// <summary>
+    /// 签到流程：筛选可提收益 &gt; 10500 的账号，逐个「显示此号」并按签到配置执行商家动作。
+    /// </summary>
+    public async Task<int> RunDailyCheckAsync(
+        IProgress<string> progress,
+        IReadOnlyList<CaptureTargetItem> captureTargets,
+        CancellationToken cancellationToken = default)
+    {
+        if (captureTargets == null || captureTargets.Count == 0)
+        {
+            progress.Report("签到配置为空，未执行。");
+            return 0;
+        }
+
+        progress.Report("正在启动/附着迅捷小辅助...");
+        var helperRoot = _automation.LaunchOrAttach(_helperPath);
+        if (helperRoot == null)
+        {
+            progress.Report("无法找到或启动迅捷小辅助窗口。");
+            return 0;
+        }
+        await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+        progress.Report("正在读取辅助软件账号列表...");
+        var raw = HelperGridReader.CollectCandidates(helperRoot, progress, MinDailyCheckScore);
+        var candidates = DeduplicateByUsername(raw);
+        progress.Report($"符合签到条件的账号数（可提收益>{MinDailyCheckScore}）：{candidates.Count}");
+        if (candidates.Count == 0)
+            return 0;
+
+        var successCount = 0;
+        foreach (var c in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report($"正在处理账号：{c.Username}");
+
+            helperRoot = _automation.LaunchOrAttach(_helperPath) ?? helperRoot;
+            var merchantPidsBeforeShow = _automation.EnumerateMainWindowProcessIds(_merchantPath);
+
+            if (!await ShowAccountOnMerchantAsync(helperRoot, c, progress, cancellationToken).ConfigureAwait(false))
+                continue;
+
+            var merchantRoot = _automation.AttachMerchantAfterShowAccount(_merchantPath, merchantPidsBeforeShow);
+            if (merchantRoot == null)
+                continue;
+            EnsureWindowNormal(merchantRoot);
+
+            var ok = await ExecuteConfiguredMerchantActionsAsync(
+                merchantRoot,
+                captureTargets,
+                0,
+                "",
+                "",
+                "",
+                progress,
+                cancellationToken).ConfigureAwait(false);
+            if (!ok)
+                continue;
+
+            successCount++;
+            _automation.MinimizeWindow(merchantRoot);
+            await Task.Delay(350, cancellationToken).ConfigureAwait(false);
+        }
+
+        progress.Report($"签到流程结束，成功处理账号数：{successCount}。");
+        return successCount;
     }
 
     private bool TryResolveStepTarget(

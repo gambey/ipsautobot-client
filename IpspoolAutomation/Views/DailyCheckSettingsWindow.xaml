@@ -1,10 +1,10 @@
-<Window x:Class="IpspoolAutomation.Views.CaptureSettingsWindow"
+<Window x:Class="IpspoolAutomation.Views.DailyCheckSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="捕捉设置" Height="420" Width="1280"
+        Title="签到设置" Height="460" Width="1460"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
-        MinWidth="1200"
+        MinWidth="1380"
         MinHeight="360">
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -128,4 +128,3 @@
         </StackPanel>
     </Grid>
 </Window>
-

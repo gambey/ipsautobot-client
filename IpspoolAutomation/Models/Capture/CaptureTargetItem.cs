@@ -14,5 +14,8 @@ public sealed class CaptureTargetItem
 
     /// <summary>该步执行完成后等待的毫秒数；未配置时由客户端默认 300。</summary>
     public int? DelayMs { get; set; }
+
+    /// <summary>配置备注，仅用于标记说明，不参与执行逻辑。</summary>
+    public string? Remark { get; set; }
 }
 
