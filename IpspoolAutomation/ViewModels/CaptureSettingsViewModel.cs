@@ -14,8 +14,8 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     [ObservableProperty] private string _statusMessage = "";
 
     public ObservableCollection<CaptureTargetItemRowViewModel> CaptureTargets { get; } = new();
-    public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "window" };
-    public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input", "click_select" };
+    public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "window", "dialog" };
+    public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
 
     public CaptureSettingsViewModel(
         ICaptureTargetSettingsService settingsService,
@@ -41,7 +41,8 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
                 OffsetX = item.OffsetX.ToString(),
                 OffsetY = item.OffsetY.ToString(),
                 Action = NormalizeAction(item.Action),
-                InputValue = item.InputValue ?? ""
+                InputValue = item.InputValue ?? "",
+                DelayMs = item.DelayMs.HasValue ? item.DelayMs.Value.ToString() : "300"
             });
         }
         NormalizeIds();
@@ -60,7 +61,29 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
             OffsetX = "0",
             OffsetY = "0",
             Action = "click",
-            InputValue = ""
+            InputValue = "",
+            DelayMs = "300"
+        });
+        NormalizeIds();
+    }
+
+    [RelayCommand]
+    private void InsertTargetBelow(CaptureTargetItemRowViewModel? afterRow)
+    {
+        if (afterRow == null)
+            return;
+        var index = CaptureTargets.IndexOf(afterRow);
+        if (index < 0)
+            return;
+        CaptureTargets.Insert(index + 1, new CaptureTargetItemRowViewModel
+        {
+            TargetType = "text",
+            AnchorType = "",
+            OffsetX = "0",
+            OffsetY = "0",
+            Action = "click",
+            InputValue = "",
+            DelayMs = "300"
         });
         NormalizeIds();
     }
@@ -90,6 +113,9 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
 
                 _ = int.TryParse(row.OffsetX, out var ox);
                 _ = int.TryParse(row.OffsetY, out var oy);
+                var delayMs = 300;
+                if (int.TryParse(row.DelayMs?.Trim(), out var d) && d >= 0)
+                    delayMs = d;
                 list.Add(new CaptureTargetItem
                 {
                     TargetID = row.TargetID,
@@ -100,7 +126,8 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
                     OffsetX = ox,
                     OffsetY = oy,
                     Action = NormalizeAction(row.Action),
-                    InputValue = string.IsNullOrWhiteSpace(row.InputValue) ? null : row.InputValue.Trim()
+                    InputValue = string.IsNullOrWhiteSpace(row.InputValue) ? null : row.InputValue.Trim(),
+                    DelayMs = delayMs
                 });
             }
 
@@ -144,6 +171,9 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
         if (string.Equals(v, "window", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(v, "窗口", StringComparison.Ordinal))
             return "window";
+        if (string.Equals(v, "dialog", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(v, "对话框", StringComparison.Ordinal))
+            return "dialog";
         return "text";
     }
 
@@ -159,6 +189,8 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
         if (string.Equals(value, "click_select", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(value, "click_slecect", StringComparison.OrdinalIgnoreCase))
             return "click_select";
+        if (string.Equals(value, "solve_math", StringComparison.OrdinalIgnoreCase))
+            return "solve_math";
         return "click";
     }
 }
@@ -174,5 +206,6 @@ public sealed partial class CaptureTargetItemRowViewModel : ObservableObject
     [ObservableProperty] private string _offsetY = "0";
     [ObservableProperty] private string _action = "click";
     [ObservableProperty] private string _inputValue = "";
+    [ObservableProperty] private string _delayMs = "300";
 }
 

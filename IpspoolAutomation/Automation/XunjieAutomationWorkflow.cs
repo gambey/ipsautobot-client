@@ -208,18 +208,22 @@ public class XunjieAutomationWorkflow
         foreach (var step in steps)
         {
             ct.ThrowIfCancellationRequested();
-            if (!TryResolveStepTarget(merchantRoot, step, out var target, out var anchor))
+            if (!TryResolveStepTarget(merchantRoot, step, out var target, out var anchor, out var scopeRoot, out var resolveDebug))
             {
+                if (!string.IsNullOrWhiteSpace(resolveDebug))
+                    AutomationDevLog.Report(progress, resolveDebug);
                 progress.Report($"配置步骤#{step.TargetID} 未找到目标控件（targetType={step.TargetType}, targetText={step.TargetText}）。");
                 return false;
             }
 
-            if (!ExecuteStepAction(merchantRoot, step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, progress))
+            if (!ExecuteStepAction(merchantRoot, scopeRoot ?? merchantRoot, step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, progress))
             {
                 progress.Report($"配置步骤#{step.TargetID} 执行失败（action={step.Action}）。");
                 return false;
             }
-            await Task.Delay(180, ct).ConfigureAwait(false);
+            var delayAfterStep = step.DelayMs ?? 300;
+            if (delayAfterStep > 0)
+                await Task.Delay(delayAfterStep, ct).ConfigureAwait(false);
         }
 
         AutomationDevLog.Report(progress, "已按捕捉设置完成商家窗口操作。");
@@ -230,15 +234,103 @@ public class XunjieAutomationWorkflow
         AutomationElement merchantRoot,
         CaptureTargetItem step,
         out AutomationElement? target,
-        out AutomationElement? anchor)
+        out AutomationElement? anchor,
+        out AutomationElement? scopeRoot,
+        out string? resolveDebug)
     {
         target = null;
         anchor = null;
+        scopeRoot = merchantRoot;
+        resolveDebug = null;
 
         if (string.Equals(step.TargetType, "window", StringComparison.OrdinalIgnoreCase))
         {
             target = merchantRoot;
             anchor = merchantRoot;
+            return true;
+        }
+
+        if (string.Equals(step.TargetType, "dialog", StringComparison.OrdinalIgnoreCase))
+        {
+            var dialogRoot = _automation.FindDialogWindow(merchantRoot, step.TargetText ?? "");
+            var action = NormalizeAction(step.Action);
+            if (dialogRoot == null && action == "solve_math")
+            {
+                dialogRoot = _automation.FindLikelyMathDialog(merchantRoot);
+                if (dialogRoot != null)
+                    resolveDebug = $"步骤#{step.TargetID} dialog标题匹配失败，已启用算式弹窗结构兜底并命中。";
+            }
+            if (dialogRoot == null && !string.IsNullOrWhiteSpace(step.AnchorType))
+            {
+                dialogRoot = _automation.FindDialogByInnerTarget(merchantRoot, step.AnchorType ?? "", step.AnchorText ?? "");
+                if (dialogRoot != null)
+                    resolveDebug = $"步骤#{step.TargetID} dialog标题匹配失败，已通过内部目标反查命中（anchorType={step.AnchorType}, anchorText={step.AnchorText}）。";
+            }
+            if (dialogRoot == null)
+            {
+                resolveDebug = _automation.BuildDialogSearchDiagnostics(merchantRoot, step.TargetText ?? "");
+                return false;
+            }
+
+            scopeRoot = dialogRoot;
+
+            if (action == "solve_math")
+            {
+                if (!string.IsNullOrWhiteSpace(step.AnchorType))
+                {
+                    var inner = new CaptureTargetItem
+                    {
+                        TargetType = step.AnchorType ?? "",
+                        TargetText = step.AnchorText ?? "",
+                        AnchorType = null,
+                        AnchorText = null,
+                        OffsetX = 0,
+                        OffsetY = 0
+                    };
+                    if (!_automation.TryResolveTarget(inner, dialogRoot, out target) || target == null)
+                    {
+                        resolveDebug = $"步骤#{step.TargetID} dialog已定位，但未找到锚点目标（anchorType={step.AnchorType}, anchorText={step.AnchorText}）。";
+                        return false;
+                    }
+                }
+                else
+                {
+                    target = _automation.FindFirstEditInSubtree(dialogRoot);
+                    if (target == null)
+                    {
+                        resolveDebug = $"步骤#{step.TargetID} solve_math：dialog已定位，但未找到可输入的Edit控件。";
+                        return false;
+                    }
+                }
+
+                anchor = null;
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(step.AnchorType))
+                return false;
+
+            var innerStep = new CaptureTargetItem
+            {
+                TargetType = step.AnchorType ?? "",
+                TargetText = step.AnchorText ?? "",
+                AnchorType = null,
+                AnchorText = null,
+                OffsetX = 0,
+                OffsetY = 0
+            };
+
+            if (!_automation.TryResolveTarget(innerStep, dialogRoot, out target) || target == null)
+            {
+                resolveDebug = $"步骤#{step.TargetID} dialog已定位，但未找到锚点目标（anchorType={step.AnchorType}, anchorText={step.AnchorText}）。";
+                return false;
+            }
+
+            if (action == "moveTo_click" || action == "moveTo_click_input")
+                anchor = target;
+            else
+                anchor = null;
+
             return true;
         }
 
@@ -254,6 +346,7 @@ public class XunjieAutomationWorkflow
 
     private bool ExecuteStepAction(
         AutomationElement merchantRoot,
+        AutomationElement scopeRoot,
         CaptureTargetItem step,
         AutomationElement? target,
         AutomationElement? anchor,
@@ -305,9 +398,25 @@ public class XunjieAutomationWorkflow
                 return false;
             }
 
-            if (!_automation.TrySelectComboBoxByDisplayText(target, selectText, merchantRoot))
+            if (!_automation.TrySelectComboBoxByDisplayText(target, selectText, scopeRoot))
                 return false;
             AutomationDevLog.Report(progress, $"步骤#{step.TargetID} click_select 已选择：{selectText}。");
+            return true;
+        }
+
+        if (action == "solve_math")
+        {
+            if (target == null || string.Equals(step.TargetType, "dialog", StringComparison.OrdinalIgnoreCase) == false)
+                return false;
+            if (!AutomationMathExpression.TryEvaluateFromDialogSubtree(scopeRoot, out var computed, out var mathDiag))
+            {
+                AutomationDevLog.Report(progress, $"步骤#{step.TargetID} {mathDiag}");
+                progress.Report($"配置步骤#{step.TargetID} solve_math：未能从对话框 UIA 文本中解析算式。");
+                return false;
+            }
+
+            _automation.SetEditValue(target, computed.ToString());
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} solve_math 已填入计算结果：{computed}。");
             return true;
         }
 
@@ -339,6 +448,8 @@ public class XunjieAutomationWorkflow
         if (string.Equals(action, "click_select", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(action, "click_slecect", StringComparison.OrdinalIgnoreCase))
             return "click_select";
+        if (string.Equals(action, "solve_math", StringComparison.OrdinalIgnoreCase))
+            return "solve_math";
         return "click";
     }
 

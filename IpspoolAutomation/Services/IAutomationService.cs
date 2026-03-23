@@ -15,6 +15,21 @@ public interface IAutomationService
     AutomationElement? FindChild(AutomationElement root, ControlType controlType, string? name = null);
     AutomationElementCollection FindAll(AutomationElement root, ControlType controlType, TreeScope scope = TreeScope.Descendants);
     AutomationElement? FindDescendantByNameContains(AutomationElement root, ControlType controlType, string nameContains);
+
+    /// <summary>
+    /// 在桌面树中查找标题名包含 <paramref name="titleContains"/> 的顶层窗口，优先与 <paramref name="merchantRoot"/> 同进程。
+    /// </summary>
+    AutomationElement? FindDialogWindow(AutomationElement merchantRoot, string titleContains);
+
+    /// <summary>在子树中查找第一个 <see cref="ControlType.Edit"/>（用于算式对话框等）。</summary>
+    AutomationElement? FindFirstEditInSubtree(AutomationElement root);
+    /// <summary>按结构特征（Edit + 确定/取消按钮 + 算式文本）兜底查找算式弹窗。</summary>
+    AutomationElement? FindLikelyMathDialog(AutomationElement merchantRoot);
+    /// <summary>当标题匹配失败时，按对话框内部目标（如 button/确定）反查弹窗容器。</summary>
+    AutomationElement? FindDialogByInnerTarget(AutomationElement merchantRoot, string targetType, string targetText);
+    /// <summary>输出弹窗定位诊断信息（候选标题/进程/可见性），用于日志排查。</summary>
+    string BuildDialogSearchDiagnostics(AutomationElement merchantRoot, string titleContains, int maxItems = 8);
+
     bool TryResolveTarget(CaptureTargetItem item, AutomationElement root, out AutomationElement? target);
     AutomationElement? FindMenuItem(string name);
     void InvokeButton(AutomationElement element);

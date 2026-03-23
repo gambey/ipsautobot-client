@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows.Automation;
 using IpspoolAutomation.Models.Capture;
 
@@ -180,6 +181,424 @@ public sealed class UIAutomationService : IAutomationService
     {
         var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, controlType);
         return root.FindAll(scope, cond);
+    }
+
+    public AutomationElement? FindDialogWindow(AutomationElement merchantRoot, string titleContains)
+    {
+        if (merchantRoot == null || string.IsNullOrWhiteSpace(titleContains))
+            return null;
+        var needle = titleContains.Trim();
+        int merchantPid;
+        try
+        {
+            merchantPid = merchantRoot.Current.ProcessId;
+        }
+        catch
+        {
+            return null;
+        }
+
+        // 1) 模态框可能在商家主窗口子树内（Window / Pane）
+        var inSubtree = TryFindDialogInSubtree(merchantRoot, merchantPid, needle);
+        if (inSubtree != null)
+            return inSubtree;
+
+        // 2) UIA：桌面范围 Window，同进程优先
+        var byUia = FindDialogWindowByUiaDesktop(merchantPid, needle);
+        if (byUia != null)
+            return byUia;
+
+        // 3) Win32 标题栏文字（部分 WPF 弹窗 UIA Name 为空，但 GetWindowText 有标题）
+        return FindDialogWindowByWin32Title(merchantPid, needle);
+    }
+
+    public AutomationElement? FindLikelyMathDialog(AutomationElement merchantRoot)
+    {
+        if (merchantRoot == null)
+            return null;
+        int merchantPid;
+        try
+        {
+            merchantPid = merchantRoot.Current.ProcessId;
+        }
+        catch
+        {
+            return null;
+        }
+
+        var candidates = new List<AutomationElement>();
+        foreach (var ct in new[] { ControlType.Window, ControlType.Pane })
+        {
+            try
+            {
+                var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ct);
+                var all = AutomationElement.RootElement.FindAll(TreeScope.Descendants, cond);
+                foreach (AutomationElement el in all)
+                {
+                    try
+                    {
+                        if (el.Current.ProcessId == merchantPid)
+                            candidates.Add(el);
+                    }
+                    catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore */ }
+        }
+
+        var bestScore = 0;
+        AutomationElement? best = null;
+        foreach (var c in candidates)
+        {
+            var score = ScoreMathDialogCandidate(c);
+            if (score <= bestScore)
+                continue;
+            bestScore = score;
+            best = c;
+        }
+
+        return bestScore >= 4 ? best : null;
+    }
+
+    public AutomationElement? FindDialogByInnerTarget(AutomationElement merchantRoot, string targetType, string targetText)
+    {
+        if (merchantRoot == null || string.IsNullOrWhiteSpace(targetType))
+            return null;
+        int merchantPid;
+        try
+        {
+            merchantPid = merchantRoot.Current.ProcessId;
+        }
+        catch
+        {
+            return null;
+        }
+
+        var candidates = new List<AutomationElement>();
+        CollectDialogLikeCandidates(merchantRoot, candidates);
+        try
+        {
+            foreach (var ct in new[] { ControlType.Window, ControlType.Pane })
+            {
+                var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ct);
+                var all = AutomationElement.RootElement.FindAll(TreeScope.Descendants, cond);
+                foreach (AutomationElement el in all)
+                {
+                    try
+                    {
+                        if (el.Current.ProcessId == merchantPid)
+                            candidates.Add(el);
+                    }
+                    catch { /* ignore */ }
+                }
+            }
+        }
+        catch { /* ignore */ }
+
+        foreach (var c in candidates)
+        {
+            try
+            {
+                if (TryFindByTypeAndText(c, targetType, targetText ?? "", out var _))
+                    return c;
+            }
+            catch { /* ignore */ }
+        }
+
+        return null;
+    }
+
+    public string BuildDialogSearchDiagnostics(AutomationElement merchantRoot, string titleContains, int maxItems = 8)
+    {
+        if (merchantRoot == null)
+            return "dialog诊断：merchantRoot为空。";
+        var needle = (titleContains ?? "").Trim();
+        int merchantPid;
+        try
+        {
+            merchantPid = merchantRoot.Current.ProcessId;
+        }
+        catch
+        {
+            return "dialog诊断：无法读取merchantRoot进程ID。";
+        }
+
+        var lines = new List<string>
+        {
+            $"dialog诊断：keyword=\"{needle}\"，pid={merchantPid}。"
+        };
+
+        var sampled = 0;
+        try
+        {
+            NativeInput.EnumWindows((hWnd, _) =>
+            {
+                if (sampled >= maxItems)
+                    return false;
+                try
+                {
+                    if (NativeInput.GetWindowThreadProcessId(hWnd, out var pid) == 0 || pid != (uint)merchantPid)
+                        return true;
+                    var visible = NativeInput.IsWindowVisible(hWnd) ? "Y" : "N";
+                    var sb = new StringBuilder(256);
+                    _ = NativeInput.GetWindowText(hWnd, sb, sb.Capacity);
+                    var title = sb.ToString();
+                    if (string.IsNullOrWhiteSpace(title))
+                        title = "<empty>";
+                    lines.Add($"win32[{sampled + 1}] visible={visible} title=\"{title}\"");
+                    sampled++;
+                }
+                catch { /* ignore */ }
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch { /* ignore */ }
+
+        if (sampled == 0)
+            lines.Add("win32候选：0。");
+        return string.Join(" | ", lines);
+    }
+
+    private static AutomationElement? TryFindDialogInSubtree(AutomationElement merchantRoot, int merchantPid, string needle)
+    {
+        foreach (var ct in new[] { ControlType.Window, ControlType.Pane })
+        {
+            AutomationElementCollection? all = null;
+            try
+            {
+                var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ct);
+                all = merchantRoot.FindAll(TreeScope.Descendants, cond);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (AutomationElement el in all)
+            {
+                try
+                {
+                    if (el.Current.ProcessId != merchantPid)
+                        continue;
+                    var name = el.Current.Name ?? "";
+                    if (name.Contains(needle, StringComparison.Ordinal))
+                        return el;
+                }
+                catch
+                {
+                    /* ignore */
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static AutomationElement? FindDialogWindowByUiaDesktop(int merchantPid, string needle)
+    {
+        AutomationElementCollection? all = null;
+        try
+        {
+            var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window);
+            all = AutomationElement.RootElement.FindAll(TreeScope.Descendants, cond);
+        }
+        catch
+        {
+            return null;
+        }
+
+        AutomationElement? anyMatch = null;
+        foreach (AutomationElement el in all)
+        {
+            try
+            {
+                if (el.Current.ProcessId != merchantPid)
+                    continue;
+                var name = el.Current.Name ?? "";
+                if (name.Contains(needle, StringComparison.Ordinal))
+                    return el;
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
+        foreach (AutomationElement el in all)
+        {
+            try
+            {
+                var name = el.Current.Name ?? "";
+                if (!name.Contains(needle, StringComparison.Ordinal))
+                    continue;
+                anyMatch ??= el;
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
+        return anyMatch;
+    }
+
+    private static AutomationElement? FindDialogWindowByWin32Title(int merchantPid, string needle)
+    {
+        AutomationElement? found = null;
+        var sb = new StringBuilder(512);
+        NativeInput.EnumWindows((hWnd, _) =>
+        {
+            if (found != null)
+                return false;
+            try
+            {
+                if (!NativeInput.IsWindowVisible(hWnd))
+                    return true;
+                if (NativeInput.GetWindowThreadProcessId(hWnd, out var pid) == 0 || pid != (uint)merchantPid)
+                    return true;
+                sb.Clear();
+                if (NativeInput.GetWindowText(hWnd, sb, sb.Capacity) <= 0)
+                    return true;
+                var title = sb.ToString();
+                if (!title.Contains(needle, StringComparison.Ordinal))
+                    return true;
+                found = AutomationElement.FromHandle(hWnd);
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            return found == null;
+        }, IntPtr.Zero);
+
+        if (found != null)
+            return found;
+
+        // 少数场景弹窗不在同进程，兜底按标题全局查找可见窗口。
+        NativeInput.EnumWindows((hWnd, _) =>
+        {
+            if (found != null)
+                return false;
+            try
+            {
+                if (!NativeInput.IsWindowVisible(hWnd))
+                    return true;
+                sb.Clear();
+                if (NativeInput.GetWindowText(hWnd, sb, sb.Capacity) <= 0)
+                    return true;
+                var title = sb.ToString();
+                if (!title.Contains(needle, StringComparison.Ordinal))
+                    return true;
+                found = AutomationElement.FromHandle(hWnd);
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            return found == null;
+        }, IntPtr.Zero);
+
+        return found;
+    }
+
+    private static int ScoreMathDialogCandidate(AutomationElement root)
+    {
+        if (root == null)
+            return 0;
+        var score = 0;
+        try
+        {
+            var title = root.Current.Name ?? "";
+            if (title.Contains("反作弊", StringComparison.Ordinal) || title.Contains("提醒", StringComparison.Ordinal))
+                score += 3;
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            if (CountByType(root, ControlType.Edit) >= 1)
+                score += 2;
+            if (CountByType(root, ControlType.Button) >= 2)
+                score += 2;
+            if (ContainsMathExpressionText(root))
+                score += 3;
+        }
+        catch { /* ignore */ }
+
+        return score;
+    }
+
+    private static int CountByType(AutomationElement root, ControlType ct)
+    {
+        try
+        {
+            var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ct);
+            return root.FindAll(TreeScope.Descendants, cond).Count;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool ContainsMathExpressionText(AutomationElement root)
+    {
+        try
+        {
+            var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
+            foreach (AutomationElement el in all)
+            {
+                try
+                {
+                    var n = el.Current.Name ?? "";
+                    if (n.Contains("+", StringComparison.Ordinal) || n.Contains("＋", StringComparison.Ordinal) ||
+                        n.Contains("-", StringComparison.Ordinal) || n.Contains("－", StringComparison.Ordinal))
+                        return true;
+                }
+                catch { /* ignore */ }
+            }
+        }
+        catch { /* ignore */ }
+
+        return false;
+    }
+
+    private static void CollectDialogLikeCandidates(AutomationElement root, List<AutomationElement> output)
+    {
+        if (root == null)
+            return;
+        foreach (var ct in new[] { ControlType.Window, ControlType.Pane })
+        {
+            try
+            {
+                var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ct);
+                var all = root.FindAll(TreeScope.Descendants, cond);
+                foreach (AutomationElement el in all)
+                    output.Add(el);
+            }
+            catch { /* ignore */ }
+        }
+    }
+
+    public AutomationElement? FindFirstEditInSubtree(AutomationElement root)
+    {
+        if (root == null)
+            return null;
+        try
+        {
+            var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit);
+            var all = root.FindAll(TreeScope.Descendants, cond);
+            foreach (AutomationElement el in all)
+                return el;
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
     }
 
     public AutomationElement? FindDescendantByNameContains(AutomationElement root, ControlType controlType, string nameContains)

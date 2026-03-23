@@ -11,5 +11,8 @@ public sealed class CaptureTargetItem
     public int OffsetY { get; set; }
     public string Action { get; set; } = "click";
     public string? InputValue { get; set; }
+
+    /// <summary>该步执行完成后等待的毫秒数；未配置时由客户端默认 300。</summary>
+    public int? DelayMs { get; set; }
 }
 
