@@ -74,6 +74,7 @@ public class XunjieAutomationWorkflow
         string recipientPhone,
         string withdrawName,
         string alipayAccount,
+        int minScoreExclusive,
         IReadOnlyList<CaptureTargetItem>? captureTargets = null,
         CancellationToken cancellationToken = default)
     {
@@ -94,9 +95,9 @@ public class XunjieAutomationWorkflow
 
         cancellationToken.ThrowIfCancellationRequested();
         progress.Report("正在读取辅助软件账号列表...");
-        var raw = HelperGridReader.CollectCandidates(helperRoot, progress, HelperGridReader.MinWithdrawableScore);
+        var raw = HelperGridReader.CollectCandidates(helperRoot, progress, minScoreExclusive);
         var candidates = DeduplicateByUsername(raw);
-        progress.Report($"符合条件的账号数（可提收益>{HelperGridReader.MinWithdrawableScore}）：{candidates.Count}");
+        progress.Report($"符合条件的账号数（可提收益>{minScoreExclusive}）：{candidates.Count}");
         if (candidates.Count == 0)
         {
             progress.Report("没有需要处理的账号，结束。");

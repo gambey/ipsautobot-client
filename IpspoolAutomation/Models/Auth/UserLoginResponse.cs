@@ -36,4 +36,10 @@ public sealed class UserInfo
 
     [JsonPropertyName("phone")]
     public string? Phone { get; set; }
+
+    [JsonPropertyName("member_expire_at")]
+    public string? MemberExpireAt { get; set; }
+
+    [JsonPropertyName("member_type")]
+    public int? MemberType { get; set; }
 }

@@ -19,6 +19,9 @@ public sealed class ApiClient : IApiClient
     private const string PathPublicKey = "api/public-key";
     private const string PathUserLogin = "api/users/login";
     private const string PathUserPassword = "api/users/password";
+    private const string PathUserMe = "api/users/me";
+    private const string PathUserMac = "api/users/mac";
+    private const string PathUserMacVerify = "api/users/mac/verify";
 
     public ApiClient(HttpClient http)
     {
@@ -104,7 +107,13 @@ public sealed class ApiClient : IApiClient
             if (data == null || string.IsNullOrEmpty(data.Token))
                 return new LoginResult(false, null, null, "Invalid response");
             var userName = data.User?.Username ?? data.User?.Phone ?? request.Account;
-            return new LoginResult(true, data.Token, userName, null);
+            return new LoginResult(
+                true,
+                data.Token,
+                userName,
+                null,
+                data.User?.MemberExpireAt,
+                data.User?.MemberType);
         }
         catch (HttpRequestException ex)
         {
@@ -212,6 +221,130 @@ public sealed class ApiClient : IApiClient
         catch (TaskCanceledException)
         {
             return new SubscribeOrderResult(false, null, null, "请求超时");
+        }
+    }
+
+    public async Task<CurrentUserProfileResult> GetCurrentUserProfileAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var req = CreateRequest(HttpMethod.Get, PathUserMe);
+            var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return new CurrentUserProfileResult(false, null, null, null, null, null, "登录已失效，请重新登录");
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var msg = TryGetMessageFromJson(body) ?? $"请求失败({(int)res.StatusCode})";
+                return new CurrentUserProfileResult(false, null, null, null, null, null, msg);
+            }
+            var wrapper = await res.Content.ReadFromJsonAsync<CurrentUserProfileResponseWrapper>(_jsonOptions, cancellationToken).ConfigureAwait(false);
+            var user = wrapper?.Data;
+            return new CurrentUserProfileResult(
+                true,
+                user?.Username,
+                user?.Phone,
+                user?.MacAddr,
+                user?.MemberExpireAt,
+                user?.MemberType,
+                null);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new CurrentUserProfileResult(false, null, null, null, null, null, ex.Message);
+        }
+        catch (TaskCanceledException)
+        {
+            return new CurrentUserProfileResult(false, null, null, null, null, null, "请求超时");
+        }
+    }
+
+    public async Task<UserMacQueryResult> GetUserMacAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var req = CreateRequest(HttpMethod.Get, PathUserMac);
+            var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return new UserMacQueryResult(false, null, "登录已失效，请重新登录");
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var msg = TryGetMessageFromJson(body) ?? $"请求失败({(int)res.StatusCode})";
+                return new UserMacQueryResult(false, null, msg);
+            }
+            var wrapper = await res.Content.ReadFromJsonAsync<UserMacResponseWrapper>(_jsonOptions, cancellationToken).ConfigureAwait(false);
+            return new UserMacQueryResult(true, wrapper?.Data?.MacAddr, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new UserMacQueryResult(false, null, ex.Message);
+        }
+        catch (TaskCanceledException)
+        {
+            return new UserMacQueryResult(false, null, "请求超时");
+        }
+    }
+
+    public async Task<UserMacUpsertResult> PutUserMacAsync(string macAddress, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new { mac_addr = macAddress }, _jsonOptions);
+            var req = CreateRequest(HttpMethod.Put, PathUserMac, new StringContent(body, Encoding.UTF8, "application/json"));
+            var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var conflictBody = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var conflictMsg = TryGetMessageFromJson(conflictBody) ?? "MAC 已被其他用户绑定";
+                return new UserMacUpsertResult(false, null, conflictMsg, IsConflict: true);
+            }
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return new UserMacUpsertResult(false, null, "登录已失效，请重新登录");
+            if (!res.IsSuccessStatusCode)
+            {
+                var errorBody = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var message = TryGetMessageFromJson(errorBody) ?? $"请求失败({(int)res.StatusCode})";
+                return new UserMacUpsertResult(false, null, message);
+            }
+            var wrapper = await res.Content.ReadFromJsonAsync<UserMacResponseWrapper>(_jsonOptions, cancellationToken).ConfigureAwait(false);
+            return new UserMacUpsertResult(true, wrapper?.Data?.MacAddr, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new UserMacUpsertResult(false, null, ex.Message);
+        }
+        catch (TaskCanceledException)
+        {
+            return new UserMacUpsertResult(false, null, "请求超时");
+        }
+    }
+
+    public async Task<UserMacVerifyResult> VerifyUserMacAsync(string macAddress, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new { mac_addr = macAddress }, _jsonOptions);
+            var req = CreateRequest(HttpMethod.Post, PathUserMacVerify, new StringContent(body, Encoding.UTF8, "application/json"));
+            var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return new UserMacVerifyResult(false, false, "登录已失效，请重新登录");
+            if (!res.IsSuccessStatusCode)
+            {
+                var errorBody = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var msg = TryGetMessageFromJson(errorBody) ?? $"请求失败({(int)res.StatusCode})";
+                return new UserMacVerifyResult(false, false, msg);
+            }
+            var wrapper = await res.Content.ReadFromJsonAsync<UserMacVerifyResponseWrapper>(_jsonOptions, cancellationToken).ConfigureAwait(false);
+            return new UserMacVerifyResult(true, wrapper?.Data?.Matched == true, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new UserMacVerifyResult(false, false, ex.Message);
+        }
+        catch (TaskCanceledException)
+        {
+            return new UserMacVerifyResult(false, false, "请求超时");
         }
     }
 

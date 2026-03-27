@@ -9,6 +9,8 @@ public partial class App : Application
 {
     private IAuthService? _authService;
     private IApiClient? _apiClient;
+    private IMacAddressProvider? _macAddressProvider;
+    private INetworkBindingGuard? _networkBindingGuard;
 
     private void App_OnStartup(object sender, StartupEventArgs e)
     {
@@ -24,7 +26,9 @@ public partial class App : Application
         http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
         _apiClient = new ApiClient(http);
-        _authService = new AuthService(_apiClient);
+        _macAddressProvider = new MacAddressProvider();
+        _authService = new AuthService(_apiClient, _macAddressProvider);
+        _networkBindingGuard = new NetworkBindingGuard(_apiClient, _macAddressProvider);
 
         if (_authService.IsLoggedIn)
         {
@@ -92,6 +96,7 @@ public partial class App : Application
         var withdrawDailyService = new WithdrawDailyService();
         var vm = new MainViewModel(
             _authService!,
+            _networkBindingGuard!,
             config,
             automationService,
             captureTargetSettingsService,

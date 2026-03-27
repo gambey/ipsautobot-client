@@ -20,10 +20,38 @@
 
 同一 `appsettings.json` 中还包含与服务端通信相关的项，例如：
 
-- `ApiBaseUrl`：API 根地址  
+- `ApiEnvironment`：环境切换（`local` / `prod`）  
+- `ApiBaseUrlLocal`：本地环境 API 根地址  
+- `ApiBaseUrlProd`：线上环境 API 根地址  
+- `ApiBaseUrl`：兼容旧配置的单地址键（当未设置 `ApiEnvironment` 或对应环境地址为空时使用）  
 - `ApiTimeoutSeconds`：请求超时（秒）
 
+### 快速切换本地/线上
+
+在 `appsettings.json` 中仅改一个键：
+
+- 切本地：`"ApiEnvironment": "local"`
+- 切线上：`"ApiEnvironment": "prod"`
+
+示例：
+
+```json
+{
+  "ApiEnvironment": "local",
+  "ApiBaseUrlLocal": "http://localhost:3002",
+  "ApiBaseUrlProd": "https://www.eiqimaimaia.xyz"
+}
+```
+
+注意：`appsettings.json` 不要写 `//` 注释（或确保程序使用支持注释的解析选项），否则会触发回退默认配置，导致看起来“连不上”。
+
 对接接口时请与项目约定的 API 文档保持一致。
+
+## 网卡绑定与自动化校验
+
+网卡绑定与自动化执行前校验已接入，详细说明见文档：
+
+- [网卡绑定与环境切换说明](docs/network-binding-and-env.md)
 
 ## 前置条件
 

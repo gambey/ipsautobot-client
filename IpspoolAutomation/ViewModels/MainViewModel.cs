@@ -18,6 +18,7 @@ namespace IpspoolAutomation.ViewModels;
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IAuthService _authService;
+    private readonly INetworkBindingGuard _networkBindingGuard;
     private readonly IAppConfig _config;
     private readonly IAutomationService _automationService;
     private readonly ICaptureTargetSettingsService _captureTargetSettingsService;
@@ -35,9 +36,11 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _logText = "";
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private string _currentPage = "提现";
+    [ObservableProperty] private string _windowTitle = "Ipspool 自动化";
 
     [ObservableProperty] private string _subscriptionStatusText = "未订阅服务";
     [ObservableProperty] private bool _isSubscribed;
+    [ObservableProperty] private bool _isVipUser;
     [ObservableProperty] private string _expireAtText = "--";
 
     /// <summary>提现详情页：成功行的已兑讯币合计。</summary>
@@ -56,6 +59,7 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _helperPath = "";
     [ObservableProperty] private string _withdrawName = "";
     [ObservableProperty] private string _alipayAccount = "";
+    [ObservableProperty] private bool _keepReserve235000;
     [ObservableProperty] private bool _isAgentPayMode = true;
     [ObservableProperty] private bool _isRegionalAgentMode;
     [ObservableProperty] private bool _isFeeFromPoints = true;
@@ -80,6 +84,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public MainViewModel(
         IAuthService authService,
+        INetworkBindingGuard networkBindingGuard,
         IAppConfig config,
         IAutomationService automationService,
         ICaptureTargetSettingsService captureTargetSettingsService,
@@ -89,6 +94,7 @@ public sealed partial class MainViewModel : ObservableObject
         IWithdrawDailyService withdrawDailyService)
     {
         _authService = authService;
+        _networkBindingGuard = networkBindingGuard;
         _config = config;
         _automationService = automationService;
         _captureTargetSettingsService = captureTargetSettingsService;
@@ -96,7 +102,11 @@ public sealed partial class MainViewModel : ObservableObject
         _dailyCheckSettingsService = dailyCheckSettingsService;
         _withdrawRecordsService = withdrawRecordsService;
         _withdrawDailyService = withdrawDailyService;
+        WindowTitle = string.IsNullOrWhiteSpace(_config.AppVersion)
+            ? "Ipspool 自动化"
+            : $"Ipspool 自动化 {_config.AppVersion}";
         UserInfo = _authService.UserName ?? "用户";
+        ApplySubscriptionState(_authService.MemberExpireAt, _authService.MemberType);
         MerchantPath = _config.XunjieMerchantPath;
         HelperPath = _config.XunjieHelperPath;
         LoadLocalSettings();
@@ -110,6 +120,7 @@ public sealed partial class MainViewModel : ObservableObject
         _checkinScheduler.Tick += OnCheckinSchedulerTick;
         _checkinScheduler.Start();
         RefreshCheckinSchedule();
+        RefreshProfileOnStartup();
     }
 
     public void SetOnLogout(Action callback) => _onLogout = callback;
@@ -119,7 +130,7 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
     public bool IsCheckinPage => CurrentPage == "签到";
     public bool IsSettingsPage => CurrentPage == "设置";
-    public bool IsExecuteEnabled => IsImmediateCheckinMode;
+    public bool IsExecuteEnabled => IsImmediateCheckinMode && !IsRunning && CanUseAutomationFeatures();
     public bool IsScheduleEnabled => IsScheduledCheckinMode;
 
     [RelayCommand]
@@ -161,6 +172,27 @@ public sealed partial class MainViewModel : ObservableObject
         if (DailyCheckTargetList.Count == 0)
         {
             CheckinStatusMessage = "请先配置签到设置步骤。";
+            return;
+        }
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    CheckinStatusMessage = message;
+                    CheckinLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    CheckinLogText = string.Join(Environment.NewLine, CheckinLogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    CheckinStatusMessage = message;
+                    CheckinLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    CheckinLogText = string.Join(Environment.NewLine, CheckinLogLines);
+                },
+                CancellationToken.None).ConfigureAwait(true))
+        {
             return;
         }
 
@@ -232,6 +264,26 @@ public sealed partial class MainViewModel : ObservableObject
             WithdrawStatusMessage = "请先在「设置」中填写收款人手机号。";
             return;
         }
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    WithdrawStatusMessage = message;
+                    LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    LogText = string.Join(Environment.NewLine, LogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    WithdrawStatusMessage = message;
+                    LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    LogText = string.Join(Environment.NewLine, LogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
 
         WithdrawStatusMessage = "正在执行自动提现…";
         IsRunning = true;
@@ -246,11 +298,15 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            var withdrawMinScoreExclusive = KeepReserve235000
+                ? 235000 + HelperGridReader.MinWithdrawableScore
+                : HelperGridReader.MinWithdrawableScore;
             var runResult = await workflow.RunWithdrawAsync(
                 progress,
                 AlipayAccount,
                 WithdrawName,
                 AlipayAccount,
+                withdrawMinScoreExclusive,
                 CaptureTargetList.ToList(),
                 _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "自动提现流程已结束。";
@@ -407,8 +463,70 @@ public sealed partial class MainViewModel : ObservableObject
         _onLogout?.Invoke();
     }
 
-    private bool CanRun() => !IsRunning;
+    [RelayCommand]
+    private async Task RefreshUserProfile()
+    {
+        var refreshed = await _authService.RefreshCurrentUserProfileAsync().ConfigureAwait(true);
+        if (!refreshed)
+            return;
+        UserInfo = _authService.UserName ?? UserInfo;
+        ApplySubscriptionState(_authService.MemberExpireAt, _authService.MemberType);
+        NotifyAutomationEligibilityChanged();
+    }
+
+    private bool CanRun() => !IsRunning && CanUseAutomationFeatures();
     private bool CanStop() => IsRunning;
+
+    private bool CanUseAutomationFeatures()
+    {
+        // Centralized extensible rule list for feature-level enablement.
+        var rules = new List<bool>
+        {
+            !string.IsNullOrWhiteSpace(_authService.BoundMac),
+            IsVipUser,
+            IsSubscribed
+        };
+        return rules.All(x => x);
+    }
+
+    private void NotifyAutomationEligibilityChanged()
+    {
+        OnPropertyChanged(nameof(IsExecuteEnabled));
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task<bool> EnsureAutomationPlatformAllowedAsync(Action<string> report, CancellationToken cancellationToken = default)
+    {
+        var check = await _networkBindingGuard.CheckCurrentMachineAsync(cancellationToken).ConfigureAwait(true);
+        if (check.Allowed)
+            return true;
+
+        var message = check.FailureReason == NetworkBindingFailureReason.NotMatched
+            ? NetworkBindingGuard.NotBoundPlatformMessage
+            : (check.Message ?? "网卡校验失败，请稍后再试。");
+        report(message);
+        return false;
+    }
+
+    private async Task<bool> EnsureLatestVipEligibleAsync(Action<string> report, CancellationToken cancellationToken = default)
+    {
+        var refreshed = await _authService.RefreshCurrentUserProfileAsync(cancellationToken).ConfigureAwait(true);
+        if (!refreshed)
+        {
+            report("获取最新用户信息失败，请稍后重试。");
+            return false;
+        }
+
+        UserInfo = _authService.UserName ?? UserInfo;
+        ApplySubscriptionState(_authService.MemberExpireAt, _authService.MemberType);
+        if (!IsSubscribed)
+        {
+            report("当前非VIP，无法执行自动化操作。");
+            return false;
+        }
+
+        return true;
+    }
 
     partial void OnCurrentPageChanged(string value)
     {
@@ -430,6 +548,12 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsExecuteEnabled));
         OnPropertyChanged(nameof(IsScheduleEnabled));
         RefreshCheckinSchedule();
+    }
+
+    partial void OnIsRunningChanged(bool value)
+    {
+        NotifyAutomationEligibilityChanged();
+        StopCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsImmediateCheckinModeChanged(bool value)
@@ -589,6 +713,8 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         if (DailyCheckTargetList.Count == 0)
             return;
+        if (!await EnsureLatestVipEligibleAsync(message => CheckinStatusMessage = message).ConfigureAwait(true))
+            return;
 
         CheckinStatusMessage = $"到达计划时间（{_nextScheduledCheckinAt:HH:mm:ss}），开始自动签到…";
         await RunDailyCheckInternalAsync(isManual: false).ConfigureAwait(true);
@@ -723,6 +849,52 @@ public sealed partial class MainViewModel : ObservableObject
         TotalExchangedCoins = WithdrawDetailItems
             .Where(x => string.Equals(x.Status, "成功", StringComparison.Ordinal))
             .Sum(x => x.ExchangedCoins);
+    }
+
+    private async void RefreshProfileOnStartup()
+    {
+        try
+        {
+            var refreshed = await _authService.RefreshCurrentUserProfileAsync().ConfigureAwait(true);
+            if (!refreshed)
+                return;
+            UserInfo = _authService.UserName ?? UserInfo;
+            ApplySubscriptionState(_authService.MemberExpireAt, _authService.MemberType);
+            NotifyAutomationEligibilityChanged();
+        }
+        catch
+        {
+            // ignore refresh failures to avoid breaking startup
+        }
+    }
+
+    private void ApplySubscriptionState(string? memberExpireAtRaw, int? memberType)
+    {
+        IsVipUser = false;
+        if (string.IsNullOrWhiteSpace(memberExpireAtRaw))
+        {
+            ExpireAtText = "--";
+            IsSubscribed = false;
+            SubscriptionStatusText = "非VIP用户";
+            NotifyAutomationEligibilityChanged();
+            return;
+        }
+
+        if (!DateTime.TryParse(memberExpireAtRaw, out var expireAt))
+        {
+            ExpireAtText = memberExpireAtRaw;
+            IsSubscribed = false;
+            SubscriptionStatusText = "VIP状态未知";
+            NotifyAutomationEligibilityChanged();
+            return;
+        }
+
+        ExpireAtText = expireAt.ToString("yyyy-MM-dd HH:mm:ss");
+        var isActive = expireAt > DateTime.Now;
+        IsVipUser = true;
+        IsSubscribed = isActive;
+        SubscriptionStatusText = isActive ? "VIP" : "VIP已过期";
+        NotifyAutomationEligibilityChanged();
     }
 }
 
