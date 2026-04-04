@@ -13,4 +13,5 @@ public interface IApiClient
     Task<UserMacQueryResult> GetUserMacAsync(CancellationToken cancellationToken = default);
     Task<UserMacUpsertResult> PutUserMacAsync(string macAddress, CancellationToken cancellationToken = default);
     Task<UserMacVerifyResult> VerifyUserMacAsync(string macAddress, CancellationToken cancellationToken = default);
+    Task<ClientSettingsArchiveResult> DownloadClientSettingsZipAsync(CancellationToken cancellationToken = default);
 }

@@ -11,6 +11,7 @@
             <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
             <local:InverseBoolConverter xmlns:local="clr-namespace:IpspoolAutomation.Converters" x:Key="InverseBoolConverter"/>
             <local:InverseBooleanToVisibilityConverter xmlns:local="clr-namespace:IpspoolAutomation.Converters" x:Key="InverseBooleanToVisibilityConverter"/>
+            <local:StringEqualsConverter x:Key="StringEqualsConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

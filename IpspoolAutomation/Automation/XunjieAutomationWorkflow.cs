@@ -41,6 +41,17 @@ public class XunjieAutomationWorkflow
         return 0;
     }
 
+    /// <summary>
+    /// 兑换页固定「兑换额度」Q（讯币）时，辅助列表筛选阈值：可提收益需 ≥ Q×1000 + Q×1000×5% +（勾选保留235000 时 +235000）。
+    /// </summary>
+    public static int ComputeExchangeMinScoreForQuota(int optionCoins, bool keepReserve235000)
+    {
+        var coinCostPoints = optionCoins * ScoreToCoinRatio;
+        var feePoints = (int)Math.Round(coinCostPoints * WithdrawFeeRatio, MidpointRounding.AwayFromZero);
+        var reserve = keepReserve235000 ? 235000 : 0;
+        return coinCostPoints + feePoints + reserve;
+    }
+
     public async Task RunAsync(IProgress<string> progress, CancellationToken cancellationToken = default)
     {
         progress.Report("正在启动迅捷小辅助...");
@@ -76,6 +87,7 @@ public class XunjieAutomationWorkflow
         string alipayAccount,
         int minScoreExclusive,
         IReadOnlyList<CaptureTargetItem>? captureTargets = null,
+        int? fixedWithdrawCoins = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -112,11 +124,13 @@ public class XunjieAutomationWorkflow
         foreach (var c in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var coins = ComputeWithdrawAmountCoins(c.Score);
-            progress.Report($"处理用户 rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，计算提现讯币={coins}。");
+            var coins = fixedWithdrawCoins ?? ComputeWithdrawAmountCoins(c.Score);
+            progress.Report(fixedWithdrawCoins.HasValue
+                ? $"处理用户 rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，提现讯币(固定档位)={coins}。"
+                : $"处理用户 rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，计算提现讯币={coins}。");
             if (coins <= 0)
             {
-                progress.Report($"计算提现讯币为 0，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                progress.Report($"提现讯币为 0，跳过（rowID={c.RowId}，用户名={c.Username}）。");
                 continue;
             }
 
@@ -172,6 +186,250 @@ public class XunjieAutomationWorkflow
 
         var elapsedSeconds = sw.Elapsed.TotalSeconds;
         progress.Report($"自动提现流程全部结束。共处理{processedCount}个账号，共计：{totalCoins}讯币，耗时：{elapsedSeconds:F1}秒");
+        return new WithdrawRunResult(processedCount, totalCoins, elapsedSeconds, detailRows);
+    }
+
+    /// <summary>
+    /// 「仅提现不兑换」：按「讯币」列与提现额度筛选，仅执行 <paramref name="steps"/>（withdraw_only.json），不执行内置讯币兑现与会员中心。
+    /// </summary>
+    public async Task<WithdrawRunResult?> RunWithdrawOnlyAsync(
+        IProgress<string> progress,
+        string recipientPhone,
+        string withdrawName,
+        string alipayAccount,
+        int minScoreExclusive,
+        bool useAutoWithdrawQuota,
+        int fixedWithdrawQuotaCoins,
+        IReadOnlyList<CaptureTargetItem> steps,
+        int? fixedWithdrawCoinsForExecution,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(recipientPhone))
+        {
+            progress.Report("未设置收款人手机号：请在「设置」中填写「收款人手机号」并保存。");
+            return null;
+        }
+
+        if (steps == null || steps.Count == 0)
+        {
+            progress.Report("仅提现不兑换配置为空：请先在「设置」中配置「仅兑换不提现」（withdraw_only.json）。");
+            return null;
+        }
+
+        progress.Report("正在启动/附着迅捷小辅助...");
+        var helperRoot = _automation.LaunchOrAttach(_helperPath);
+        if (helperRoot == null)
+        {
+            progress.Report("无法找到或启动迅捷小辅助窗口。");
+            return null;
+        }
+        await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        progress.Report("正在读取辅助软件账号列表（仅提现不兑换：讯币列≥提现额度）…");
+        var raw = HelperGridReader.CollectCandidatesForWithdrawOnly(
+            helperRoot,
+            progress,
+            minScoreExclusive,
+            useAutoWithdrawQuota,
+            fixedWithdrawQuotaCoins,
+            ComputeWithdrawAmountCoins);
+        var candidates = DeduplicateByUsername(raw);
+        progress.Report($"符合条件的账号数：{candidates.Count}");
+        if (candidates.Count == 0)
+        {
+            progress.Report("没有需要处理的账号，结束。");
+            return null;
+        }
+
+        var sw = Stopwatch.StartNew();
+        var processedCount = 0;
+        long totalCoins = 0;
+        var detailRows = new List<WithdrawDetailItem>();
+
+        foreach (var c in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var coins = fixedWithdrawCoinsForExecution ?? ComputeWithdrawAmountCoins(c.Score);
+            progress.Report($"[仅提现不兑换] rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，执行讯币={coins}。");
+            if (coins <= 0)
+            {
+                progress.Report($"执行讯币为 0，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                continue;
+            }
+
+            helperRoot = _automation.LaunchOrAttach(_helperPath) ?? helperRoot;
+
+            var merchantPidsBeforeShow = _automation.EnumerateMainWindowProcessIds(_merchantPath);
+            AutomationDevLog.Report(progress, $"「显示此号」前已存在的商家版进程数：{merchantPidsBeforeShow.Count}。");
+
+            if (!await ShowAccountOnMerchantAsync(helperRoot, c, progress, cancellationToken).ConfigureAwait(false))
+                continue;
+
+            AutomationDevLog.Report(progress, "正在附着当前账号对应的迅捷云商家版窗口（多实例时优先新进程，其次前台窗口）…");
+            var merchantRoot = _automation.AttachMerchantAfterShowAccount(_merchantPath, merchantPidsBeforeShow);
+            if (merchantRoot == null)
+            {
+                progress.Report("未能附着商家版窗口，跳过该用户。");
+                continue;
+            }
+            EnsureWindowNormal(merchantRoot);
+
+            var ok = await ExecuteConfiguredMerchantActionsAsync(
+                merchantRoot, steps, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken).ConfigureAwait(false);
+            if (!ok)
+            {
+                progress.Report($"仅提现不兑换脚本未完成，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                _automation.MinimizeWindow(merchantRoot);
+                await Task.Delay(300, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+            var minimized = _automation.MinimizeWindow(merchantRoot);
+            progress.Report(minimized
+                ? $"已最小化商家窗口（rowID={c.RowId}），继续下一账号。"
+                : $"尝试最小化商家窗口失败（rowID={c.RowId}），窗口可能被目标程序拦截。");
+            detailRows.Add(CreateWithdrawDetailItem(c.Username, c.Score, coins));
+            processedCount++;
+            totalCoins += coins;
+            await Task.Delay(300, cancellationToken).ConfigureAwait(false);
+        }
+
+        var elapsedSeconds = sw.Elapsed.TotalSeconds;
+        progress.Report($"仅提现不兑换流程全部结束。共处理{processedCount}个账号，共计：{totalCoins}讯币，耗时：{elapsedSeconds:F1}秒");
+        return new WithdrawRunResult(processedCount, totalCoins, elapsedSeconds, detailRows);
+    }
+
+    /// <summary>
+    /// 按 <paramref name="steps"/>（仅兑换设置 / exchange_score.json）在符合条件的账号上执行商家端配置步骤；不执行内置讯币兑现与会员中心提现。
+    /// </summary>
+    public async Task<WithdrawRunResult?> RunExchangeScoreAsync(
+        IProgress<string> progress,
+        string recipientPhone,
+        string withdrawName,
+        string alipayAccount,
+        int minScoreExclusive,
+        IReadOnlyList<CaptureTargetItem> steps,
+        bool useAutoExchangeCoins = true,
+        int? fixedExchangeCoins = null,
+        bool keepReserve235000ForQuota = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(recipientPhone))
+        {
+            progress.Report("未设置收款人手机号：请在「设置」中填写「收款人手机号」并保存。");
+            return null;
+        }
+
+        if (steps == null || steps.Count == 0)
+        {
+            progress.Report("仅兑换设置为空：请先在「设置」中配置「仅兑换设置」并保存。");
+            return null;
+        }
+
+        progress.Report("正在启动/附着迅捷小辅助...");
+        var helperRoot = _automation.LaunchOrAttach(_helperPath);
+        if (helperRoot == null)
+        {
+            progress.Report("无法找到或启动迅捷小辅助窗口。");
+            return null;
+        }
+        await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        progress.Report("正在读取辅助软件账号列表...");
+        List<WithdrawCandidateRow> raw;
+        int? exchangeMinInclusive = null;
+        if (useAutoExchangeCoins)
+        {
+            raw = HelperGridReader.CollectCandidates(helperRoot, progress, minScoreExclusive);
+        }
+        else
+        {
+            if (fixedExchangeCoins is not { } q || q <= 0)
+            {
+                progress.Report("固定兑换额度无效，请重新选择兑换额度。");
+                return null;
+            }
+            exchangeMinInclusive = ComputeExchangeMinScoreForQuota(q, keepReserve235000ForQuota);
+            progress.Report(
+                $"兑换额度={q} 讯币；兑换积分阈值（可提收益需≥）={exchangeMinInclusive}（含 5% 手续费积分，{(keepReserve235000ForQuota ? "含保留 235000" : "不含保留 235000")}）。");
+            raw = HelperGridReader.CollectCandidatesWithMinScoreInclusive(helperRoot, progress, exchangeMinInclusive.Value);
+        }
+
+        var candidates = DeduplicateByUsername(raw);
+        if (useAutoExchangeCoins)
+            progress.Report($"符合条件的账号数（可提收益>{minScoreExclusive}）：{candidates.Count}");
+        else
+            progress.Report($"符合条件的账号数（可提收益≥{exchangeMinInclusive}）：{candidates.Count}");
+
+        if (candidates.Count == 0)
+        {
+            progress.Report("没有需要处理的账号，结束。");
+            return null;
+        }
+
+        var sw = Stopwatch.StartNew();
+        var processedCount = 0;
+        long totalCoins = 0;
+        var detailRows = new List<WithdrawDetailItem>();
+
+        foreach (var c in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var coins = useAutoExchangeCoins
+                ? ComputeWithdrawAmountCoins(c.Score)
+                : fixedExchangeCoins!.Value;
+            progress.Report($"[仅兑换] 处理用户 rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，{(useAutoExchangeCoins ? "计算" : "固定")}讯币={coins}。");
+            if (coins <= 0)
+            {
+                progress.Report($"计算讯币为 0，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                continue;
+            }
+
+            helperRoot = _automation.LaunchOrAttach(_helperPath) ?? helperRoot;
+
+            var merchantPidsBeforeShow = _automation.EnumerateMainWindowProcessIds(_merchantPath);
+            AutomationDevLog.Report(progress, $"「显示此号」前已存在的商家版进程数：{merchantPidsBeforeShow.Count}。");
+
+            if (!await ShowAccountOnMerchantAsync(helperRoot, c, progress, cancellationToken).ConfigureAwait(false))
+                continue;
+
+            AutomationDevLog.Report(progress, "正在附着当前账号对应的迅捷云商家版窗口（多实例时优先新进程，其次前台窗口）…");
+            var merchantRoot = _automation.AttachMerchantAfterShowAccount(_merchantPath, merchantPidsBeforeShow);
+            if (merchantRoot == null)
+            {
+                progress.Report("未能附着商家版窗口，跳过该用户。");
+                continue;
+            }
+            EnsureWindowNormal(merchantRoot);
+
+            var ok = await ExecuteConfiguredMerchantActionsAsync(
+                merchantRoot, steps, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken).ConfigureAwait(false);
+            if (!ok)
+            {
+                progress.Report($"仅兑换脚本未完成，跳过（rowID={c.RowId}，用户名={c.Username}）。");
+                _automation.MinimizeWindow(merchantRoot);
+                await Task.Delay(300, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+
+            var minimized = _automation.MinimizeWindow(merchantRoot);
+            progress.Report(minimized
+                ? $"已最小化商家窗口（rowID={c.RowId}），继续下一账号。"
+                : $"尝试最小化商家窗口失败（rowID={c.RowId}），窗口可能被目标程序拦截。");
+            detailRows.Add(CreateWithdrawDetailItem(c.Username, c.Score, coins));
+            processedCount++;
+            totalCoins += coins;
+            await Task.Delay(300, cancellationToken).ConfigureAwait(false);
+        }
+
+        var elapsedSeconds = sw.Elapsed.TotalSeconds;
+        progress.Report($"仅兑换流程全部结束。共处理{processedCount}个账号，共计：{totalCoins}讯币，耗时：{elapsedSeconds:F1}秒");
         return new WithdrawRunResult(processedCount, totalCoins, elapsedSeconds, detailRows);
     }
 

@@ -7,18 +7,24 @@ namespace IpspoolAutomation.Services;
 public sealed class DailyCheckExeService : IDailyCheckExeService
 {
     public string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "IpspoolAutomation",
+        ClientSettingsPaths.ClientSettingsDirectory,
+        "dailyCheckExe.json");
+
+    private static string LegacyFilePath => Path.Combine(
+        ClientSettingsPaths.LegacyAppDirectory,
         "dailyCheckExe.json");
 
     public CaptureTargetSettings Load()
     {
         try
         {
-            if (!File.Exists(FilePath))
+            var path = ClientSettingsPaths.ResolveExistingPath(FilePath, LegacyFilePath);
+            if (path == null)
                 return new CaptureTargetSettings();
-            var json = File.ReadAllText(FilePath);
-            return JsonSerializer.Deserialize<CaptureTargetSettings>(json) ?? new CaptureTargetSettings();
+
+            var json = File.ReadAllText(path);
+            return JsonSerializer.Deserialize<CaptureTargetSettings>(json, ClientSettingsJson.DeserializeOptions)
+                   ?? new CaptureTargetSettings();
         }
         catch
         {
@@ -31,7 +37,7 @@ public sealed class DailyCheckExeService : IDailyCheckExeService
         var dir = Path.GetDirectoryName(FilePath);
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
-        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(settings, ClientSettingsJson.SerializeOptions);
         File.WriteAllText(FilePath, json);
     }
 }

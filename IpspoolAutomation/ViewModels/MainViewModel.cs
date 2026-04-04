@@ -22,6 +22,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IAppConfig _config;
     private readonly IAutomationService _automationService;
     private readonly ICaptureTargetSettingsService _captureTargetSettingsService;
+    private readonly IWithdrawOnlySettingsService _withdrawOnlySettingsService;
+    private readonly IExchangeScoreSettingsService _exchangeScoreSettingsService;
     private readonly IDailyCheckExeService _dailyCheckExeService;
     private readonly IDailyCheckSettingsService _dailyCheckSettingsService;
     private readonly IWithdrawRecordsService _withdrawRecordsService;
@@ -36,7 +38,7 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _logText = "";
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private string _currentPage = "提现";
-    [ObservableProperty] private string _windowTitle = "Ipspool 自动化";
+    [ObservableProperty] private string _windowTitle = "智灵科技";
 
     [ObservableProperty] private string _subscriptionStatusText = "未订阅服务";
     [ObservableProperty] private bool _isSubscribed;
@@ -47,6 +49,8 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private decimal _totalExchangedCoins;
 
     [ObservableProperty] private string _withdrawStatusMessage = "提现流程待接入自动化步骤。";
+    [ObservableProperty] private string _exchangeStatusMessage = "";
+    [ObservableProperty] private string _exchangeLogText = "";
     [ObservableProperty] private string _checkinMode = "Cancel";
     [ObservableProperty] private bool _isImmediateCheckinMode;
     [ObservableProperty] private bool _isScheduledCheckinMode;
@@ -60,6 +64,12 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _withdrawName = "";
     [ObservableProperty] private string _alipayAccount = "";
     [ObservableProperty] private bool _keepReserve235000;
+
+    /// <summary>提现额度单选：<c>Auto</c>、<c>100</c>、<c>200</c>、<c>300</c>、<c>500</c>、<c>1000</c>。</summary>
+    [ObservableProperty] private string _withdrawCoinPreset = "Auto";
+
+    /// <summary>兑换页「兑换额度」单选，与提现额度独立。</summary>
+    [ObservableProperty] private string _exchangeCoinPreset = "Auto";
     [ObservableProperty] private bool _isAgentPayMode = true;
     [ObservableProperty] private bool _isRegionalAgentMode;
     [ObservableProperty] private bool _isFeeFromPoints = true;
@@ -70,9 +80,12 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isWithdrawDetailEmpty = true;
 
     public ObservableCollection<string> LogLines { get; } = new();
+    public ObservableCollection<string> ExchangeLogLines { get; } = new();
     public ObservableCollection<WithdrawDetailItem> WithdrawDetailItems { get; } = new();
     public ObservableCollection<WithdrawRecordItem> WithdrawRecords { get; } = new();
     public ObservableCollection<CaptureTargetItem> CaptureTargetList { get; } = new();
+    public ObservableCollection<CaptureTargetItem> WithdrawOnlyTargetList { get; } = new();
+    public ObservableCollection<CaptureTargetItem> ExchangeScoreTargetList { get; } = new();
     public ObservableCollection<CaptureTargetItem> DailyCheckTargetList { get; } = new();
     public ObservableCollection<string> CheckinLogLines { get; } = new();
     public IReadOnlyList<string> CheckinTimeOptions { get; } =
@@ -88,6 +101,8 @@ public sealed partial class MainViewModel : ObservableObject
         IAppConfig config,
         IAutomationService automationService,
         ICaptureTargetSettingsService captureTargetSettingsService,
+        IWithdrawOnlySettingsService withdrawOnlySettingsService,
+        IExchangeScoreSettingsService exchangeScoreSettingsService,
         IDailyCheckExeService dailyCheckExeService,
         IDailyCheckSettingsService dailyCheckSettingsService,
         IWithdrawRecordsService withdrawRecordsService,
@@ -98,19 +113,23 @@ public sealed partial class MainViewModel : ObservableObject
         _config = config;
         _automationService = automationService;
         _captureTargetSettingsService = captureTargetSettingsService;
+        _withdrawOnlySettingsService = withdrawOnlySettingsService;
+        _exchangeScoreSettingsService = exchangeScoreSettingsService;
         _dailyCheckExeService = dailyCheckExeService;
         _dailyCheckSettingsService = dailyCheckSettingsService;
         _withdrawRecordsService = withdrawRecordsService;
         _withdrawDailyService = withdrawDailyService;
         WindowTitle = string.IsNullOrWhiteSpace(_config.AppVersion)
-            ? "Ipspool 自动化"
-            : $"Ipspool 自动化 {_config.AppVersion}";
+            ? "智灵自动"
+            : $"智灵自动 {_config.AppVersion}";
         UserInfo = _authService.UserName ?? "用户";
         ApplySubscriptionState(_authService.MemberExpireAt, _authService.MemberType);
         MerchantPath = _config.XunjieMerchantPath;
         HelperPath = _config.XunjieHelperPath;
         LoadLocalSettings();
         LoadCaptureTargetSettings();
+        LoadWithdrawOnlySettings();
+        LoadExchangeScoreSettings();
         LoadDailyCheckExeSettings();
         LoadDailyCheckSettings();
         LoadWithdrawRecords();
@@ -127,6 +146,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool IsWithdrawDetailPage => CurrentPage == "提现详情";
     public bool IsWithdrawPage => CurrentPage == "提现";
+    public bool IsExchangePage => CurrentPage == "兑换";
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
     public bool IsCheckinPage => CurrentPage == "签到";
     public bool IsSettingsPage => CurrentPage == "设置";
@@ -135,6 +155,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void GoWithdraw() => SetCurrentPage("提现");
+
+    [RelayCommand]
+    private void GoExchange() => SetCurrentPage("兑换");
 
     [RelayCommand]
     private void GoWithdrawDetail() => SetCurrentPage("提现详情");
@@ -204,6 +227,8 @@ public sealed partial class MainViewModel : ObservableObject
     {
         IsRunning = true;
         StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         if (isManual)
         {
@@ -247,6 +272,8 @@ public sealed partial class MainViewModel : ObservableObject
         {
             IsRunning = false;
             StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
     }
@@ -288,6 +315,8 @@ public sealed partial class MainViewModel : ObservableObject
         WithdrawStatusMessage = "正在执行自动提现…";
         IsRunning = true;
         StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         _cts = new CancellationTokenSource();
         var progress = new Progress<string>(s =>
@@ -301,6 +330,7 @@ public sealed partial class MainViewModel : ObservableObject
             var withdrawMinScoreExclusive = KeepReserve235000
                 ? 235000 + HelperGridReader.MinWithdrawableScore
                 : HelperGridReader.MinWithdrawableScore;
+            var fixedCoins = TryGetFixedWithdrawCoinsFromPreset(out _);
             var runResult = await workflow.RunWithdrawAsync(
                 progress,
                 AlipayAccount,
@@ -308,6 +338,7 @@ public sealed partial class MainViewModel : ObservableObject
                 AlipayAccount,
                 withdrawMinScoreExclusive,
                 CaptureTargetList.ToList(),
+                fixedCoins,
                 _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "自动提现流程已结束。";
             if (runResult != null)
@@ -330,6 +361,213 @@ public sealed partial class MainViewModel : ObservableObject
         {
             IsRunning = false;
             StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private async Task StartWithdrawOnly()
+    {
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            WithdrawStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(AlipayAccount))
+        {
+            WithdrawStatusMessage = "请先在「设置」中填写收款人手机号。";
+            return;
+        }
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    WithdrawStatusMessage = message;
+                    LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    LogText = string.Join(Environment.NewLine, LogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    WithdrawStatusMessage = message;
+                    LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    LogText = string.Join(Environment.NewLine, LogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var wo = _withdrawOnlySettingsService.Load();
+        if (wo.CaptureTargetList == null || wo.CaptureTargetList.Count == 0)
+        {
+            WithdrawStatusMessage = "请先在「设置」中配置「仅兑换不提现」（withdraw_only.json）。";
+            return;
+        }
+
+        WithdrawStatusMessage = "正在执行仅提现不兑换…";
+        IsRunning = true;
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        _cts = new CancellationTokenSource();
+        var progress = new Progress<string>(s =>
+        {
+            LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
+            LogText = string.Join(Environment.NewLine, LogLines);
+        });
+        try
+        {
+            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            var withdrawMinScoreExclusive = KeepReserve235000
+                ? 235000 + HelperGridReader.MinWithdrawableScore
+                : HelperGridReader.MinWithdrawableScore;
+            var useAuto = string.Equals(WithdrawCoinPreset, "Auto", StringComparison.OrdinalIgnoreCase);
+            var fixedCoinsOpt = TryGetFixedWithdrawCoinsFromPreset(out _);
+            var runResult = await workflow.RunWithdrawOnlyAsync(
+                progress,
+                AlipayAccount,
+                WithdrawName,
+                AlipayAccount,
+                withdrawMinScoreExclusive,
+                useAuto,
+                fixedCoinsOpt ?? 0,
+                wo.CaptureTargetList,
+                fixedCoinsOpt,
+                _cts.Token).ConfigureAwait(true);
+            WithdrawStatusMessage = "仅提现不兑换流程已结束。";
+            if (runResult != null)
+            {
+                ApplyWithdrawDaily(runResult);
+                AppendWithdrawRecord(runResult);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            WithdrawStatusMessage = "已取消仅提现不兑换。";
+        }
+        catch (Exception ex)
+        {
+            WithdrawStatusMessage = $"仅提现不兑换异常：{ex.Message}";
+            LogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex}");
+            LogText = string.Join(Environment.NewLine, LogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private async Task StartExchangeScore()
+    {
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            ExchangeStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(AlipayAccount))
+        {
+            ExchangeStatusMessage = "请先在「设置」中填写收款人手机号。";
+            return;
+        }
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    ExchangeStatusMessage = message;
+                    ExchangeLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    ExchangeLogText = string.Join(Environment.NewLine, ExchangeLogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    ExchangeStatusMessage = message;
+                    ExchangeLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    ExchangeLogText = string.Join(Environment.NewLine, ExchangeLogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var settings = _exchangeScoreSettingsService.Load();
+        if (settings.CaptureTargetList == null || settings.CaptureTargetList.Count == 0)
+        {
+            ExchangeStatusMessage = "请先在「设置」中配置「仅兑换设置」（exchange_score.json）。";
+            return;
+        }
+
+        var useAutoExchange = string.Equals(ExchangeCoinPreset, "Auto", StringComparison.OrdinalIgnoreCase);
+        int? fixedExchangeCoins = null;
+        if (!useAutoExchange)
+        {
+            if (!int.TryParse(ExchangeCoinPreset, out var eq) || eq <= 0 || !IsValidWithdrawCoinPreset(ExchangeCoinPreset))
+            {
+                ExchangeStatusMessage = "兑换额度无效，请选择 100～1000 或自动计算。";
+                return;
+            }
+            fixedExchangeCoins = eq;
+        }
+
+        ExchangeStatusMessage = "正在执行仅兑换流程…";
+        ExchangeLogLines.Clear();
+        ExchangeLogText = "";
+        IsRunning = true;
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        _cts = new CancellationTokenSource();
+        var progress = new Progress<string>(s =>
+        {
+            ExchangeLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
+            ExchangeLogText = string.Join(Environment.NewLine, ExchangeLogLines);
+        });
+        try
+        {
+            var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
+            var minScoreExclusive = KeepReserve235000
+                ? 235000 + HelperGridReader.MinWithdrawableScore
+                : HelperGridReader.MinWithdrawableScore;
+            await workflow.RunExchangeScoreAsync(
+                progress,
+                AlipayAccount,
+                WithdrawName,
+                AlipayAccount,
+                minScoreExclusive,
+                settings.CaptureTargetList,
+                useAutoExchange,
+                fixedExchangeCoins,
+                KeepReserve235000,
+                _cts.Token).ConfigureAwait(true);
+            ExchangeStatusMessage = "仅兑换流程已结束。";
+        }
+        catch (OperationCanceledException)
+        {
+            ExchangeStatusMessage = "已取消仅兑换流程。";
+        }
+        catch (Exception ex)
+        {
+            ExchangeStatusMessage = $"仅兑换异常：{ex.Message}";
+            ExchangeLogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex}");
+            ExchangeLogText = string.Join(Environment.NewLine, ExchangeLogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
     }
@@ -406,7 +644,9 @@ public sealed partial class MainViewModel : ObservableObject
                 WithdrawName = WithdrawName,
                 AlipayAccount = AlipayAccount,
                 PaymentMode = IsRegionalAgentMode ? "RegionalAgent" : "AgentPay",
-                FeeMode = IsFeeFromPoints ? "FromPoints5Percent" : "None"
+                FeeMode = IsFeeFromPoints ? "FromPoints5Percent" : "None",
+                WithdrawCoinPreset = WithdrawCoinPreset,
+                ExchangeCoinPreset = ExchangeCoinPreset
             };
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(LocalSettingsPath, json);
@@ -435,6 +675,32 @@ public sealed partial class MainViewModel : ObservableObject
         vm.SetCloseAction(() => window.Close());
         window.ShowDialog();
         LoadCaptureTargetSettings();
+    }
+
+    [RelayCommand]
+    private void OpenWithdrawOnlySettings()
+    {
+        var vm = new CaptureSettingsViewModel(_withdrawOnlySettingsService, WithdrawOnlyTargetList);
+        var window = new CaptureSettingsWindow("仅兑换不提现 - 自动化设置")
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        LoadWithdrawOnlySettings();
+    }
+
+    [RelayCommand]
+    private void OpenExchangeScoreSettings()
+    {
+        var vm = new CaptureSettingsViewModel(_exchangeScoreSettingsService, ExchangeScoreTargetList);
+        var window = new CaptureSettingsWindow("仅兑换设置 - 自动化设置")
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        LoadExchangeScoreSettings();
     }
 
     [RelayCommand]
@@ -493,6 +759,19 @@ public sealed partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsExecuteEnabled));
         StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>非 <see cref="WithdrawCoinPreset"/> Auto 时返回固定讯币档位；否则 <c>null</c>（自动计算）。</summary>
+    private int? TryGetFixedWithdrawCoinsFromPreset(out bool isAuto)
+    {
+        isAuto = string.Equals(WithdrawCoinPreset, "Auto", StringComparison.OrdinalIgnoreCase);
+        if (isAuto)
+            return null;
+        if (int.TryParse(WithdrawCoinPreset, out var v) && v > 0)
+            return v;
+        return null;
     }
 
     private async Task<bool> EnsureAutomationPlatformAllowedAsync(Action<string> report, CancellationToken cancellationToken = default)
@@ -533,6 +812,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWithdrawDetailPage));
         OnPropertyChanged(nameof(IsWithdrawPage));
         OnPropertyChanged(nameof(IsWithdrawRecordsPage));
+        OnPropertyChanged(nameof(IsExchangePage));
         OnPropertyChanged(nameof(IsCheckinPage));
         OnPropertyChanged(nameof(IsSettingsPage));
     }
@@ -581,6 +861,15 @@ public sealed partial class MainViewModel : ObservableObject
         CurrentPage = page;
     }
 
+    private static bool IsValidWithdrawCoinPreset(string? p)
+    {
+        if (string.IsNullOrWhiteSpace(p))
+            return false;
+        if (string.Equals(p, "Auto", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return p is "100" or "200" or "300" or "500" or "1000";
+    }
+
     partial void OnIsAgentPayModeChanged(bool value)
     {
         if (value) IsRegionalAgentMode = false;
@@ -618,6 +907,10 @@ public sealed partial class MainViewModel : ObservableObject
             IsRegionalAgentMode = string.Equals(data.PaymentMode, "RegionalAgent", StringComparison.OrdinalIgnoreCase);
             IsAgentPayMode = !IsRegionalAgentMode;
             IsFeeFromPoints = !string.Equals(data.FeeMode, "None", StringComparison.OrdinalIgnoreCase);
+            if (IsValidWithdrawCoinPreset(data.WithdrawCoinPreset))
+                WithdrawCoinPreset = data.WithdrawCoinPreset!;
+            if (IsValidWithdrawCoinPreset(data.ExchangeCoinPreset))
+                ExchangeCoinPreset = data.ExchangeCoinPreset!;
             SettingsSaveStatus = $"已加成功载配置！";
         }
         catch (Exception ex)
@@ -638,6 +931,36 @@ public sealed partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             SettingsSaveStatus = $"读取捕捉设置失败：{ex.Message}";
+        }
+    }
+
+    private void LoadWithdrawOnlySettings()
+    {
+        try
+        {
+            var settings = _withdrawOnlySettingsService.Load();
+            WithdrawOnlyTargetList.Clear();
+            foreach (var item in settings.CaptureTargetList.OrderBy(x => x.TargetID))
+                WithdrawOnlyTargetList.Add(item);
+        }
+        catch (Exception ex)
+        {
+            SettingsSaveStatus = $"读取仅兑换不提现设置失败：{ex.Message}";
+        }
+    }
+
+    private void LoadExchangeScoreSettings()
+    {
+        try
+        {
+            var settings = _exchangeScoreSettingsService.Load();
+            ExchangeScoreTargetList.Clear();
+            foreach (var item in settings.CaptureTargetList.OrderBy(x => x.TargetID))
+                ExchangeScoreTargetList.Add(item);
+        }
+        catch (Exception ex)
+        {
+            SettingsSaveStatus = $"读取仅兑换设置失败：{ex.Message}";
         }
     }
 
@@ -906,4 +1229,9 @@ public sealed class LocalUiSettings
     public string? AlipayAccount { get; set; }
     public string? PaymentMode { get; set; }
     public string? FeeMode { get; set; }
+    /// <summary>Auto / 100 / 200 / 300 / 500 / 1000</summary>
+    public string? WithdrawCoinPreset { get; set; }
+
+    /// <summary>兑换页额度，取值同 <see cref="WithdrawCoinPreset"/>。</summary>
+    public string? ExchangeCoinPreset { get; set; }
 }

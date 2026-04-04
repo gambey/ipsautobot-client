@@ -11,6 +11,7 @@ public partial class App : Application
     private IApiClient? _apiClient;
     private IMacAddressProvider? _macAddressProvider;
     private INetworkBindingGuard? _networkBindingGuard;
+    private ICaptureTargetSettingsService? _captureTargetSettingsService;
 
     private void App_OnStartup(object sender, StartupEventArgs e)
     {
@@ -27,14 +28,13 @@ public partial class App : Application
 
         _apiClient = new ApiClient(http);
         _macAddressProvider = new MacAddressProvider();
-        _authService = new AuthService(_apiClient, _macAddressProvider);
+        _captureTargetSettingsService = new CaptureTargetSettingsService();
+        _authService = new AuthService(_apiClient, _macAddressProvider, _captureTargetSettingsService);
         _networkBindingGuard = new NetworkBindingGuard(_apiClient, _macAddressProvider);
 
         if (_authService.IsLoggedIn)
         {
-            var main = new MainWindow();
-            main.DataContext = CreateMainViewModel(main);
-            main.Show();
+            ShowMainWindow();
         }
         else
         {
@@ -50,9 +50,7 @@ public partial class App : Application
         vm.SetOnLoginSuccess(() =>
         {
             loginWindow.Hide();
-            var main = new MainWindow();
-            main.DataContext = CreateMainViewModel(main);
-            main.Show();
+            ShowMainWindow();
             loginWindow.Close();
         });
         vm.SetOnOpenRegister(() =>
@@ -74,9 +72,7 @@ public partial class App : Application
             {
                 changePasswordWindow.Close();
                 loginWindow.Hide();
-                var main = new MainWindow();
-                main.DataContext = CreateMainViewModel(main);
-                main.Show();
+                ShowMainWindow();
                 loginWindow.Close();
             });
             changePasswordWindow.Owner = loginWindow;
@@ -85,12 +81,39 @@ public partial class App : Application
         return vm;
     }
 
+    private void ShowMainWindow()
+    {
+        var main = new MainWindow();
+        main.DataContext = CreateMainViewModel(main);
+        main.Loaded += MainWindow_OnFirstLoaded;
+        main.Show();
+    }
+
+    private async void MainWindow_OnFirstLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is MainWindow w)
+            w.Loaded -= MainWindow_OnFirstLoaded;
+
+        if (_authService is not { IsLoggedIn: true })
+            return;
+
+        try
+        {
+            await _authService.EnsureClientSettingsFromServerIfMissingAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // Same as login path: user can add targetSettings.json manually.
+        }
+    }
+
     private MainViewModel CreateMainViewModel(MainWindow mainWindow)
     {
         var config = new AppConfig();
         var automationService = new UIAutomationService();
-        var captureTargetSettingsService = new CaptureTargetSettingsService();
         var dailyCheckExeService = new DailyCheckExeService();
+        var withdrawOnlySettingsService = new WithdrawOnlySettingsService();
+        var exchangeScoreSettingsService = new ExchangeScoreSettingsService();
         var dailyCheckSettingsService = new DailyCheckSettingsService();
         var withdrawRecordsService = new WithdrawRecordsService();
         var withdrawDailyService = new WithdrawDailyService();
@@ -99,7 +122,9 @@ public partial class App : Application
             _networkBindingGuard!,
             config,
             automationService,
-            captureTargetSettingsService,
+            _captureTargetSettingsService!,
+            withdrawOnlySettingsService,
+            exchangeScoreSettingsService,
             dailyCheckExeService,
             dailyCheckSettingsService,
             withdrawRecordsService,

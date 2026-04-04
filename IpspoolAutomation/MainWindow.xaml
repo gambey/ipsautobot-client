@@ -17,7 +17,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="IPS_AUTOBOT" Foreground="White" FontWeight="SemiBold" FontSize="16" Margin="0,0,16,0"/>
+                    <TextBlock Text="智灵自动" Foreground="White" FontWeight="SemiBold" FontSize="16" Margin="0,0,16,0"/>
                     <TextBlock Text="当前用户:" Foreground="#FFD1D5DB" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="{Binding UserInfo}" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     <TextBlock Text="   |   到期时间:" Foreground="#FFD1D5DB" VerticalAlignment="Center" Margin="12,0,6,0"/>
@@ -42,9 +42,10 @@
             <Border Grid.Column="0" Background="#FF111827" Padding="12">
                 <StackPanel>
                     <TextBlock Text="功能菜单" Foreground="#FF9CA3AF" Margin="8,8,8,14"/>
+                    <Button Content="兑换" Command="{Binding GoExchangeCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现" Command="{Binding GoWithdrawCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现详情" Command="{Binding GoWithdrawDetailCommand}" Margin="0,0,0,8" Padding="12,10"/>
-                    <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10" Click="Button_Click"/>
                     <Button Content="签到" Command="{Binding GoCheckinCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="设置" Command="{Binding GoSettingsCommand}" Margin="0,0,0,8" Padding="12,10"/>
                 </StackPanel>
@@ -140,13 +141,86 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="{Binding WithdrawStatusMessage}" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
-                                <Button Content="执行自动提现" Command="{Binding StartWithdrawCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6"/>
-                                <CheckBox Content="保留235000" IsChecked="{Binding KeepReserve235000}" Margin="12,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
+                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="仅提现不兑换" Command="{Binding StartWithdrawOnlyCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="兑换并提现" Command="{Binding StartWithdrawCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <CheckBox Content="保留235000" IsChecked="{Binding KeepReserve235000}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock Text="提现额度" FontWeight="SemiBold" Margin="0,0,0,6" HorizontalAlignment="Right"/>
+                                    <UniformGrid Columns="2" HorizontalAlignment="Right" Width="220">
+                                        <RadioButton Content="100" GroupName="WithdrawCoinPresetGroup" Margin="0,0,8,4"
+                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=100, Mode=TwoWay}"/>
+                                        <RadioButton Content="500" GroupName="WithdrawCoinPresetGroup" Margin="0,0,0,4"
+                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=500, Mode=TwoWay}"/>
+                                        <RadioButton Content="200" GroupName="WithdrawCoinPresetGroup" Margin="0,0,8,4"
+                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=200, Mode=TwoWay}"/>
+                                        <RadioButton Content="1000" GroupName="WithdrawCoinPresetGroup" Margin="0,0,0,4"
+                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=1000, Mode=TwoWay}"/>
+                                        <RadioButton Content="300" GroupName="WithdrawCoinPresetGroup" Margin="0,0,8,4"
+                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=300, Mode=TwoWay}"/>
+                                        <RadioButton Content="自动计算" GroupName="WithdrawCoinPresetGroup" Margin="0,0,0,4"
+                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=Auto, Mode=TwoWay}"/>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Grid>
                             <TextBox Grid.Row="2"
                                      Text="{Binding LogText}"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     AcceptsReturn="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     BorderBrush="#FFE5E7EB"
+                                     BorderThickness="1"
+                                     Padding="8"
+                                     MinHeight="220"/>
+                        </Grid>
+
+                        <Grid Visibility="{Binding IsExchangePage, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{Binding ExchangeStatusMessage}" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="兑换" Command="{Binding StartExchangeScoreCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <CheckBox Content="保留235000" IsChecked="{Binding KeepReserve235000}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock Text="兑换额度" FontWeight="SemiBold" Margin="0,0,0,6" HorizontalAlignment="Right"/>
+                                    <UniformGrid Columns="2" HorizontalAlignment="Right" Width="220">
+                                        <RadioButton Content="100" GroupName="ExchangeCoinPresetGroup" Margin="0,0,8,4"
+                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=100, Mode=TwoWay}"/>
+                                        <RadioButton Content="500" GroupName="ExchangeCoinPresetGroup" Margin="0,0,0,4"
+                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=500, Mode=TwoWay}"/>
+                                        <RadioButton Content="200" GroupName="ExchangeCoinPresetGroup" Margin="0,0,8,4"
+                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=200, Mode=TwoWay}"/>
+                                        <RadioButton Content="1000" GroupName="ExchangeCoinPresetGroup" Margin="0,0,0,4"
+                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=1000, Mode=TwoWay}"/>
+                                        <RadioButton Content="300" GroupName="ExchangeCoinPresetGroup" Margin="0,0,8,4"
+                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=300, Mode=TwoWay}"/>
+                                        <RadioButton Content="自动计算" GroupName="ExchangeCoinPresetGroup" Margin="0,0,0,4"
+                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=Auto, Mode=TwoWay}"/>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Grid>
+                            <TextBox Grid.Row="2"
+                                     Text="{Binding ExchangeLogText}"
                                      IsReadOnly="True"
                                      TextWrapping="Wrap"
                                      VerticalScrollBarVisibility="Auto"
@@ -247,7 +321,7 @@
                                      MinHeight="240"/>
 
                             <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                                <!--Button Content="签到设置" Command="{Binding OpenDailyCheckSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/-->
+                                <Button Content="签到设置" Command="{Binding OpenDailyCheckSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                 <Button Content="保存" Command="{Binding SaveDailyCheckSettingsCommand}" Padding="12,6"/>
                             </StackPanel>
                         </Grid>
@@ -326,7 +400,9 @@
 
                             <StackPanel Grid.Row="8" Orientation="Vertical">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-                                    <!--Button Content="捕捉设置" Command="{Binding OpenCaptureSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/-->
+                                    <Button Content="兑换提现设置" Command="{Binding OpenCaptureSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="仅提现设置" Command="{Binding OpenWithdrawOnlySettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="仅兑换设置" Command="{Binding OpenExchangeScoreSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="保存" Command="{Binding SaveSettingsCommand}" Padding="12,6"/>
                                 </StackPanel>
                                 <TextBlock Text="{Binding SettingsSaveStatus}" Foreground="#FF2563EB" Margin="0,8,0,0" TextWrapping="Wrap"/>

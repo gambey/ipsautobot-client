@@ -22,6 +22,7 @@ public sealed class ApiClient : IApiClient
     private const string PathUserMe = "api/users/me";
     private const string PathUserMac = "api/users/mac";
     private const string PathUserMacVerify = "api/users/mac/verify";
+    private const string PathClientSettingsZip = "api/client-settings.zip";
 
     public ApiClient(HttpClient http)
     {
@@ -345,6 +346,50 @@ public sealed class ApiClient : IApiClient
         catch (TaskCanceledException)
         {
             return new UserMacVerifyResult(false, false, "请求超时");
+        }
+    }
+
+    /// <summary>GET /api/client-settings.zip (api.md) — user JWT only.</summary>
+    public async Task<ClientSettingsArchiveResult> DownloadClientSettingsZipAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var uri = new Uri(_http.BaseAddress!, PathClientSettingsZip);
+            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+            req.Headers.TryAddWithoutValidation("Accept", "application/zip, application/octet-stream, */*");
+            if (!string.IsNullOrEmpty(_token))
+                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _token);
+
+            var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return new ClientSettingsArchiveResult(false, "登录已失效，请重新登录", null);
+            if (res.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                return new ClientSettingsArchiveResult(false, "需要普通用户令牌（管理员令牌不可用）", null);
+            if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                var body = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var msg = TryGetMessageFromJson(body) ?? "服务器上未找到客户端配置包";
+                return new ClientSettingsArchiveResult(false, msg, null);
+            }
+            if (!res.IsSuccessStatusCode)
+            {
+                var errorBody = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var msg = TryGetMessageFromJson(errorBody) ?? $"请求失败({(int)res.StatusCode})";
+                return new ClientSettingsArchiveResult(false, msg, null);
+            }
+
+            var bytes = await res.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            if (bytes.Length == 0)
+                return new ClientSettingsArchiveResult(false, "配置包为空", null);
+            return new ClientSettingsArchiveResult(true, null, bytes);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new ClientSettingsArchiveResult(false, ex.Message, null);
+        }
+        catch (TaskCanceledException)
+        {
+            return new ClientSettingsArchiveResult(false, "请求超时", null);
         }
     }
 

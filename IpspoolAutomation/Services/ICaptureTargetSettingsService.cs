@@ -2,10 +2,8 @@ using IpspoolAutomation.Models.Capture;
 
 namespace IpspoolAutomation.Services;
 
-public interface ICaptureTargetSettingsService
+public interface ICaptureTargetSettingsService : ICaptureTargetListPersistence
 {
     string SettingsPath { get; }
-    CaptureTargetSettings Load();
-    void Save(CaptureTargetSettings settings);
 }
 

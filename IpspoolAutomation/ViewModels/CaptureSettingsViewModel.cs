@@ -8,7 +8,7 @@ namespace IpspoolAutomation.ViewModels;
 
 public sealed partial class CaptureSettingsViewModel : ObservableObject
 {
-    private readonly ICaptureTargetSettingsService _settingsService;
+    private readonly ICaptureTargetListPersistence _persistence;
     private Action? _closeAction;
 
     [ObservableProperty] private string _statusMessage = "";
@@ -18,11 +18,11 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
 
     public CaptureSettingsViewModel(
-        ICaptureTargetSettingsService settingsService,
+        ICaptureTargetListPersistence persistence,
         IEnumerable<CaptureTargetItem>? initialItems = null)
     {
-        _settingsService = settingsService;
-        var source = initialItems?.ToList() ?? settingsService.Load().CaptureTargetList;
+        _persistence = persistence;
+        var source = initialItems?.ToList() ?? persistence.Load().CaptureTargetList;
         if (source.Count == 0)
         {
             AddTarget();
@@ -135,7 +135,7 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
                 });
             }
 
-            _settingsService.Save(new CaptureTargetSettings { CaptureTargetList = list });
+            _persistence.Save(new CaptureTargetSettings { CaptureTargetList = list });
             StatusMessage = $"保存成功，共 {list.Count} 条目标。";
             _closeAction?.Invoke();
         }

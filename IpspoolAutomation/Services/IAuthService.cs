@@ -14,4 +14,9 @@ public interface IAuthService
     bool IsLoggedIn { get; }
     string? Token { get; }
     string? UserName { get; }
+
+    /// <summary>
+    /// If <c>targetSettings.json</c> is missing, downloads <c>GET /api/client-settings.zip</c> and extracts beside that path. Requires user JWT.
+    /// </summary>
+    Task EnsureClientSettingsFromServerIfMissingAsync(CancellationToken cancellationToken = default);
 }

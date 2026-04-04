@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text.Json;
 using IpspoolAutomation.Models.Auth;
 
@@ -8,6 +9,7 @@ public sealed class AuthService : IAuthService
 {
     private readonly IApiClient _api;
     private readonly IMacAddressProvider _macAddressProvider;
+    private readonly ICaptureTargetSettingsService _captureTargetSettings;
     private string? _token;
     private string? _userName;
     private string? _boundMac;
@@ -17,10 +19,11 @@ public sealed class AuthService : IAuthService
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "IpspoolAutomation", "auth.json");
 
-    public AuthService(IApiClient api, IMacAddressProvider macAddressProvider)
+    public AuthService(IApiClient api, IMacAddressProvider macAddressProvider, ICaptureTargetSettingsService captureTargetSettings)
     {
         _api = api;
         _macAddressProvider = macAddressProvider;
+        _captureTargetSettings = captureTargetSettings;
         LoadStored();
     }
 
@@ -48,6 +51,7 @@ public sealed class AuthService : IAuthService
                 Logout();
                 return new LoginResult(false, null, null, bindResult.Message);
             }
+            await EnsureClientSettingsFromServerIfMissingAsync(cancellationToken).ConfigureAwait(false);
             SaveStored();
         }
         return result;
@@ -173,5 +177,40 @@ public sealed class AuthService : IAuthService
         _memberExpireAt = profile.MemberExpireAt;
         _memberType = profile.MemberType;
         return true;
+    }
+
+    public async Task EnsureClientSettingsFromServerIfMissingAsync(CancellationToken cancellationToken = default)
+    {
+        if (File.Exists(_captureTargetSettings.SettingsPath))
+            return;
+
+        var destDir = Path.GetDirectoryName(_captureTargetSettings.SettingsPath);
+        if (string.IsNullOrWhiteSpace(destDir))
+            return;
+
+        var archive = await _api.DownloadClientSettingsZipAsync(cancellationToken).ConfigureAwait(false);
+        if (!archive.Success || archive.Data == null || archive.Data.Length == 0)
+            return;
+
+        Directory.CreateDirectory(destDir);
+        var tempZip = Path.Combine(Path.GetTempPath(), "ipspool-client-settings-" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            await File.WriteAllBytesAsync(tempZip, archive.Data, cancellationToken).ConfigureAwait(false);
+            ZipFile.ExtractToDirectory(tempZip, destDir, overwriteFiles: true);
+        }
+        catch
+        {
+            // Login still succeeds; user may add targetSettings.json manually.
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempZip))
+                    File.Delete(tempZip);
+            }
+            catch { /* ignore */ }
+        }
     }
 }

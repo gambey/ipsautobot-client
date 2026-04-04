@@ -4,9 +4,10 @@ namespace IpspoolAutomation.Views;
 
 public partial class CaptureSettingsWindow : Window
 {
-    public CaptureSettingsWindow()
+    public CaptureSettingsWindow(string title = "捕捉设置")
     {
         InitializeComponent();
+        Title = title;
     }
 }
 

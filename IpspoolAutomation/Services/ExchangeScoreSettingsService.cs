@@ -1,30 +1,30 @@
-using System.Text.Json;
 using System.IO;
+using System.Text.Json;
 using IpspoolAutomation.Models.Capture;
 
 namespace IpspoolAutomation.Services;
 
-public sealed class CaptureTargetSettingsService : ICaptureTargetSettingsService
+public sealed class ExchangeScoreSettingsService : IExchangeScoreSettingsService
 {
-    public string SettingsPath { get; } = Path.Combine(
+    public string FilePath { get; } = Path.Combine(
         ClientSettingsPaths.ClientSettingsDirectory,
-        "targetSettings.json");
+        "exchange_score.json");
 
-    private static string LegacySettingsPath => Path.Combine(
+    private static string LegacyFilePath => Path.Combine(
         ClientSettingsPaths.LegacyAppDirectory,
-        "targetSettings.json");
+        "exchange_score.json");
 
     public CaptureTargetSettings Load()
     {
         try
         {
-            var path = ClientSettingsPaths.ResolveExistingPath(SettingsPath, LegacySettingsPath);
+            var path = ClientSettingsPaths.ResolveExistingPath(FilePath, LegacyFilePath);
             if (path == null)
                 return new CaptureTargetSettings();
 
             var json = File.ReadAllText(path);
-            var data = JsonSerializer.Deserialize<CaptureTargetSettings>(json, ClientSettingsJson.DeserializeOptions);
-            return data ?? new CaptureTargetSettings();
+            return JsonSerializer.Deserialize<CaptureTargetSettings>(json, ClientSettingsJson.DeserializeOptions)
+                   ?? new CaptureTargetSettings();
         }
         catch
         {
@@ -34,11 +34,10 @@ public sealed class CaptureTargetSettingsService : ICaptureTargetSettingsService
 
     public void Save(CaptureTargetSettings settings)
     {
-        var dir = Path.GetDirectoryName(SettingsPath);
+        var dir = Path.GetDirectoryName(FilePath);
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
-
         var json = JsonSerializer.Serialize(settings, ClientSettingsJson.SerializeOptions);
-        File.WriteAllText(SettingsPath, json);
+        File.WriteAllText(FilePath, json);
     }
 }
