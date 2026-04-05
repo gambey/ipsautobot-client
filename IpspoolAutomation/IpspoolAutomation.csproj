@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
@@ -18,6 +18,8 @@
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 		<IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
 		<EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+		<!-- 确保主程序集带有 Configuration 元数据，供运行时使用（与 VS 下拉 Debug/Release 一致） -->
+		<GenerateAssemblyConfigurationAttribute>true</GenerateAssemblyConfigurationAttribute>
 	</PropertyGroup>
 
 	<ItemGroup>

@@ -150,24 +150,25 @@
                                     <Button Content="仅提现不兑换" Command="{Binding StartWithdrawOnlyCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="兑换并提现" Command="{Binding StartWithdrawCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="清空" Command="{Binding ClearWithdrawLogCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <CheckBox Content="保留235000" IsChecked="{Binding KeepReserve235000}" VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Margin="16,0,0,0">
-                                    <TextBlock Text="提现额度" FontWeight="SemiBold" Margin="0,0,0,6" HorizontalAlignment="Right"/>
-                                    <UniformGrid Columns="2" HorizontalAlignment="Right" Width="220">
-                                        <RadioButton Content="100" GroupName="WithdrawCoinPresetGroup" Margin="0,0,8,4"
-                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=100, Mode=TwoWay}"/>
-                                        <RadioButton Content="500" GroupName="WithdrawCoinPresetGroup" Margin="0,0,0,4"
-                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=500, Mode=TwoWay}"/>
-                                        <RadioButton Content="200" GroupName="WithdrawCoinPresetGroup" Margin="0,0,8,4"
-                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=200, Mode=TwoWay}"/>
-                                        <RadioButton Content="1000" GroupName="WithdrawCoinPresetGroup" Margin="0,0,0,4"
-                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=1000, Mode=TwoWay}"/>
-                                        <RadioButton Content="300" GroupName="WithdrawCoinPresetGroup" Margin="0,0,8,4"
-                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=300, Mode=TwoWay}"/>
-                                        <RadioButton Content="自动计算" GroupName="WithdrawCoinPresetGroup" Margin="0,0,0,4"
-                                                     IsChecked="{Binding WithdrawCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=Auto, Mode=TwoWay}"/>
-                                    </UniformGrid>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock Text="提现额度" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <ComboBox Width="128"
+                                              MinHeight="22"
+                                              VerticalAlignment="Center"
+                                              VerticalContentAlignment="Center"
+                                              Padding="8,4"
+                                              SelectedValue="{Binding WithdrawCoinPreset, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              SelectedValuePath="Tag">
+                                        <ComboBoxItem Tag="Auto" Content="自动计算最大值"/>
+                                        <ComboBoxItem Tag="100" Content="100"/>
+                                        <ComboBoxItem Tag="200" Content="200"/>
+                                        <ComboBoxItem Tag="300" Content="300"/>
+                                        <ComboBoxItem Tag="500" Content="500"/>
+                                        <ComboBoxItem Tag="1000" Content="1000"/>
+                                    </ComboBox>
                                 </StackPanel>
                             </Grid>
                             <TextBox Grid.Row="2"
@@ -199,24 +200,25 @@
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                     <Button Content="兑换" Command="{Binding StartExchangeScoreCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="清空" Command="{Binding ClearExchangeLogCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <CheckBox Content="保留235000" IsChecked="{Binding KeepReserve235000}" VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Margin="16,0,0,0">
-                                    <TextBlock Text="兑换额度" FontWeight="SemiBold" Margin="0,0,0,6" HorizontalAlignment="Right"/>
-                                    <UniformGrid Columns="2" HorizontalAlignment="Right" Width="220">
-                                        <RadioButton Content="100" GroupName="ExchangeCoinPresetGroup" Margin="0,0,8,4"
-                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=100, Mode=TwoWay}"/>
-                                        <RadioButton Content="500" GroupName="ExchangeCoinPresetGroup" Margin="0,0,0,4"
-                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=500, Mode=TwoWay}"/>
-                                        <RadioButton Content="200" GroupName="ExchangeCoinPresetGroup" Margin="0,0,8,4"
-                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=200, Mode=TwoWay}"/>
-                                        <RadioButton Content="1000" GroupName="ExchangeCoinPresetGroup" Margin="0,0,0,4"
-                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=1000, Mode=TwoWay}"/>
-                                        <RadioButton Content="300" GroupName="ExchangeCoinPresetGroup" Margin="0,0,8,4"
-                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=300, Mode=TwoWay}"/>
-                                        <RadioButton Content="自动计算" GroupName="ExchangeCoinPresetGroup" Margin="0,0,0,4"
-                                                     IsChecked="{Binding ExchangeCoinPreset, Converter={StaticResource StringEqualsConverter}, ConverterParameter=Auto, Mode=TwoWay}"/>
-                                    </UniformGrid>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock Text="兑换额度" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <ComboBox Width="128"
+                                              MinHeight="22"
+                                              VerticalAlignment="Center"
+                                              VerticalContentAlignment="Center"
+                                              Padding="8,4"
+                                              SelectedValue="{Binding ExchangeCoinPreset, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              SelectedValuePath="Tag">
+                                        <ComboBoxItem Tag="Auto" Content="自动计算最大值"/>
+                                        <ComboBoxItem Tag="100" Content="100"/>
+                                        <ComboBoxItem Tag="200" Content="200"/>
+                                        <ComboBoxItem Tag="300" Content="300"/>
+                                        <ComboBoxItem Tag="500" Content="500"/>
+                                        <ComboBoxItem Tag="1000" Content="1000"/>
+                                    </ComboBox>
                                 </StackPanel>
                             </Grid>
                             <TextBox Grid.Row="2"
@@ -283,7 +285,22 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            
+                            <Border Grid.Row="0" Padding="10,6" Margin="0,0,0,12" CornerRadius="4"
+                                    Background="#FFF3F4F6" BorderBrush="#FFE5E7EB" BorderThickness="1">
+                                <TextBlock FontWeight="SemiBold" VerticalAlignment="Center"
+                                           Text="{Binding TodayAutoCheckinStatusText}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#FFCA8A04"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsTodayAutoCheckinDone}" Value="True">
+                                                    <Setter Property="Foreground" Value="#FF15803D"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
 
                             <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
                                 <TextBlock Text="签到方式:" VerticalAlignment="Center" Margin="0,0,12,0"/>
@@ -321,7 +338,8 @@
                                      MinHeight="240"/>
 
                             <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                                <Button Content="签到设置" Command="{Binding OpenDailyCheckSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                <Button Content="签到设置" Command="{Binding OpenDailyCheckSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
+                                        Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <Button Content="保存" Command="{Binding SaveDailyCheckSettingsCommand}" Padding="12,6"/>
                             </StackPanel>
                         </Grid>
@@ -339,7 +357,10 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            
+                            <Button Grid.Row="0" Content="打开路径" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Command="{Binding OpenUserSettingsFolderCommand}" Padding="12,6" Margin="0,0,0,10"
+                                    Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
                             <TextBlock Grid.Row="1" Text="设置路径" Foreground="Gray" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
                             <Grid Grid.Row="2" Margin="0,0,0,8">
@@ -400,9 +421,12 @@
 
                             <StackPanel Grid.Row="8" Orientation="Vertical">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-                                    <Button Content="兑换提现设置" Command="{Binding OpenCaptureSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                    <Button Content="仅提现设置" Command="{Binding OpenWithdrawOnlySettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                    <Button Content="仅兑换设置" Command="{Binding OpenExchangeScoreSettingsCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="兑换提现设置" Command="{Binding OpenCaptureSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <Button Content="仅提现设置" Command="{Binding OpenWithdrawOnlySettingsCommand}" Padding="12,6" Margin="0,0,8,0"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <Button Content="仅兑换设置" Command="{Binding OpenExchangeScoreSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     <Button Content="保存" Command="{Binding SaveSettingsCommand}" Padding="12,6"/>
                                 </StackPanel>
                                 <TextBlock Text="{Binding SettingsSaveStatus}" Foreground="#FF2563EB" Margin="0,8,0,0" TextWrapping="Wrap"/>

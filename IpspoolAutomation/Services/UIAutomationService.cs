@@ -853,6 +853,203 @@ public sealed class UIAutomationService : IAutomationService
         return cx >= viewportLeft && cx <= viewportRight && cy >= viewportTop && cy <= viewportBottom;
     }
 
+    /// <summary>
+    /// 行在滚动区内有足够高度露出（避免仅顶部一条缝或中心落在横向滚动条上），才适合右键菜单。
+    /// </summary>
+    private static bool IsDataItemAdequatelyVisibleForRowClick(AutomationElement element)
+    {
+        if (element == null)
+            return false;
+        try
+        {
+            if (element.Current.IsOffscreen)
+                return false;
+        }
+        catch
+        {
+            return false;
+        }
+
+        System.Windows.Rect rowRect;
+        AutomationElement? container;
+        try
+        {
+            rowRect = element.Current.BoundingRectangle;
+            container = FindScrollableAncestor(element);
+        }
+        catch
+        {
+            return false;
+        }
+        if (rowRect.Width <= 0 || rowRect.Height <= 0)
+            return false;
+
+        if (container == null)
+            return true;
+
+        System.Windows.Rect viewport;
+        try
+        {
+            viewport = container.Current.BoundingRectangle;
+        }
+        catch
+        {
+            return true;
+        }
+
+        var bottomReserve = GetViewportBottomReserveForRowClicks(container);
+        var effBottom = viewport.Bottom - bottomReserve;
+        if (effBottom <= viewport.Top + 1)
+            return false;
+
+        var il = Math.Max(rowRect.Left, viewport.Left);
+        var it = Math.Max(rowRect.Top, viewport.Top);
+        var ir = Math.Min(rowRect.Right, viewport.Right);
+        var ib = Math.Min(rowRect.Bottom, effBottom);
+        var visibleH = ib - it;
+        if (visibleH <= 0 || ir <= il)
+            return false;
+
+        var needH = Math.Max(18.0, Math.Min(rowRect.Height * 0.65, rowRect.Height - 1));
+        return visibleH >= needH;
+    }
+
+    /// <summary>横向滚动条会占用宿主底部像素，中心点仍可能在 UIA 视口内但实际点在条带上。</summary>
+    private static double GetViewportBottomReserveForRowClicks(AutomationElement scrollContainer)
+    {
+        try
+        {
+            if (scrollContainer.TryGetCurrentPattern(ScrollPattern.Pattern, out var spObj) && spObj is ScrollPattern sp)
+            {
+                if (sp.Current.HorizontallyScrollable)
+                    return 28;
+            }
+        }
+        catch { /* ignore */ }
+        return 10;
+    }
+
+    public bool TryGetGridRowContextClickPoint(AutomationElement row, out int x, out int y)
+    {
+        x = y = 0;
+        if (row == null)
+            return false;
+        System.Windows.Rect rowRect;
+        AutomationElement? container;
+        try
+        {
+            rowRect = row.Current.BoundingRectangle;
+            container = FindScrollableAncestor(row);
+        }
+        catch
+        {
+            return false;
+        }
+        if (rowRect.Width <= 0 || rowRect.Height <= 0)
+            return false;
+
+        if (container == null)
+        {
+            x = (int)(rowRect.Left + rowRect.Width / 2);
+            y = (int)(rowRect.Top + rowRect.Height / 2);
+            return true;
+        }
+
+        System.Windows.Rect viewport;
+        try
+        {
+            viewport = container.Current.BoundingRectangle;
+        }
+        catch
+        {
+            x = (int)(rowRect.Left + rowRect.Width / 2);
+            y = (int)(rowRect.Top + rowRect.Height / 2);
+            return true;
+        }
+
+        var bottomReserve = GetViewportBottomReserveForRowClicks(container);
+        var effBottom = viewport.Bottom - bottomReserve;
+        if (effBottom <= viewport.Top + 1)
+            return false;
+
+        var il = Math.Max(rowRect.Left, viewport.Left);
+        var it = Math.Max(rowRect.Top, viewport.Top);
+        var ir = Math.Min(rowRect.Right, viewport.Right);
+        var ib = Math.Min(rowRect.Bottom, effBottom);
+        if (ir <= il || ib <= it)
+            return false;
+
+        x = (int)((il + ir) / 2);
+        y = (int)((it + ib) / 2);
+        return true;
+    }
+
+    public void LeftClickGridRowForContextMenu(AutomationElement row)
+    {
+        if (TryGetGridRowContextClickPoint(row, out var px, out var py))
+            NativeInput.LeftClickAt(px, py);
+        else
+            NativeInput.LeftClickCenter(row);
+    }
+
+    public void RightClickGridRowForContextMenu(AutomationElement row)
+    {
+        if (TryGetGridRowContextClickPoint(row, out var px, out var py))
+            NativeInput.RightClickAt(px, py);
+        else
+            NativeInput.RightClickCenter(row);
+    }
+
+    public bool TryEnsureGridRowReadyForContextMenu(AutomationElement dataItem, int maxSteps = 28)
+    {
+        if (dataItem == null)
+            return false;
+
+        try
+        {
+            if (dataItem.TryGetCurrentPattern(ScrollItemPattern.Pattern, out var siObj) && siObj is ScrollItemPattern sip)
+            {
+                sip.ScrollIntoView();
+                Thread.Sleep(90);
+            }
+        }
+        catch { /* ignore */ }
+
+        if (IsDataItemAdequatelyVisibleForRowClick(dataItem))
+            return true;
+
+        // 不能用 TryEnsureDataItemVisible：其「中心点在视口内」过宽，会跳过滚动，留下被横向滚动条压住的行。
+        var scrollContainer = FindScrollableAncestor(dataItem);
+        if (scrollContainer == null)
+            return IsDataItemAdequatelyVisibleForRowClick(dataItem);
+        if (!scrollContainer.TryGetCurrentPattern(ScrollPattern.Pattern, out var spObj) || spObj is not ScrollPattern sp)
+            return IsDataItemAdequatelyVisibleForRowClick(dataItem);
+        if (!sp.Current.VerticallyScrollable)
+            return IsDataItemAdequatelyVisibleForRowClick(dataItem);
+
+        for (var i = 0; i < maxSteps; i++)
+        {
+            if (IsDataItemAdequatelyVisibleForRowClick(dataItem))
+                return true;
+            try
+            {
+                var rowRect = dataItem.Current.BoundingRectangle;
+                var viewport = scrollContainer.Current.BoundingRectangle;
+                var effMidY = viewport.Top + (viewport.Bottom - GetViewportBottomReserveForRowClicks(scrollContainer) - viewport.Top) / 2;
+                var rowMidY = rowRect.Top + rowRect.Height / 2;
+                var amount = rowMidY < effMidY ? ScrollAmount.SmallDecrement : ScrollAmount.SmallIncrement;
+                sp.ScrollVertical(amount);
+            }
+            catch
+            {
+                break;
+            }
+            Thread.Sleep(45);
+        }
+
+        return IsDataItemAdequatelyVisibleForRowClick(dataItem);
+    }
+
     public bool TryEnsureDataItemVisible(AutomationElement dataItem, int maxSteps = 20)
     {
         if (dataItem == null)

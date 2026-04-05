@@ -39,6 +39,12 @@ public interface IAutomationService
     bool MinimizeWindow(AutomationElement windowElement);
     bool IsElementVisibleInViewport(AutomationElement element);
     bool TryEnsureDataItemVisible(AutomationElement dataItem, int maxSteps = 20);
+    /// <summary>将表格行滚入「足够」可视区（避开横向滚动条压行），便于右键弹出「显示此号」。</summary>
+    bool TryEnsureGridRowReadyForContextMenu(AutomationElement dataItem, int maxSteps = 28);
+    /// <summary>计算行在滚动宿主安全区域内的点击点（行矩形与可视区交集的中心）；失败时返回 false。</summary>
+    bool TryGetGridRowContextClickPoint(AutomationElement row, out int x, out int y);
+    void LeftClickGridRowForContextMenu(AutomationElement row);
+    void RightClickGridRowForContextMenu(AutomationElement row);
     bool TryBringDataItemToTop(AutomationElement dataItem, int maxSteps = 20);
     bool TryScrollToBottom(AutomationElement contextElement);
     void LeftClickElement(AutomationElement element);

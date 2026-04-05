@@ -1,10 +1,10 @@
 <Window x:Class="IpspoolAutomation.Views.CaptureSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="捕捉设置" Height="420" Width="1280"
+        Title="捕捉设置" Height="420" Width="1520"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
-        MinWidth="1200"
+        MinWidth="1420"
         MinHeight="360">
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -33,10 +33,10 @@
                         <ColumnDefinition Width="120"/>
                         <ColumnDefinition Width="70"/>
                         <ColumnDefinition Width="70"/>
-                        <ColumnDefinition Width="130"/>
-                        <ColumnDefinition Width="140"/>
-                        <ColumnDefinition Width="100"/>
-                        <ColumnDefinition Width="180"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="220"/>
                         <ColumnDefinition Width="40"/>
                         <ColumnDefinition Width="70"/>
                     </Grid.ColumnDefinitions>
@@ -68,10 +68,10 @@
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="70"/>
                                         <ColumnDefinition Width="70"/>
-                                        <ColumnDefinition Width="130"/>
-                                        <ColumnDefinition Width="140"/>
-                                        <ColumnDefinition Width="100"/>
-                                        <ColumnDefinition Width="180"/>
+                                        <ColumnDefinition Width="150"/>
+                                        <ColumnDefinition Width="160"/>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="220"/>
                                         <ColumnDefinition Width="40"/>
                                         <ColumnDefinition Width="70"/>
                                     </Grid.ColumnDefinitions>

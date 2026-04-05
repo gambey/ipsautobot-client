@@ -1014,24 +1014,24 @@ fallbackNearest:
             return false;
         }
 
-        if (_automation.IsElementVisibleInViewport(row))
-        {
-            AutomationDevLog.Report(progress, $"rowID={candidate.RowId} 已在可视范围内，无需滚动。");
-        }
-        else
-        {
-            var ensuredVisible = _automation.TryEnsureDataItemVisible(row);
-            AutomationDevLog.Report(progress, ensuredVisible
-                ? $"rowID={candidate.RowId} 原本不可视，已滚动到可视范围。"
-                : $"rowID={candidate.RowId} 不可视且滚动未能保证可视，继续尝试直接操作。");
-        }
+        var rowReady = _automation.TryEnsureGridRowReadyForContextMenu(row);
+        AutomationDevLog.Report(progress, rowReady
+            ? $"rowID={candidate.RowId} 已滚动/调整至适合右键的可视区域。"
+            : $"rowID={candidate.RowId} 未能完全满足「足够露出」条件，仍将尝试点击（可能被横向滚动条遮挡时易失败）。");
 
-        _automation.LeftClickElement(row);
-        var (clickX, clickY) = GetElementCenter(row);
+        _automation.LeftClickGridRowForContextMenu(row);
+        int clickX;
+        int clickY;
+        if (!_automation.TryGetGridRowContextClickPoint(row, out clickX, out clickY))
+        {
+            var c = GetElementCenter(row);
+            clickX = c.X;
+            clickY = c.Y;
+        }
         AutomationDevLog.Report(progress, $"rowID={candidate.RowId} 已左键选中目标行，坐标=({clickX},{clickY})。");
         await Task.Delay(80, ct).ConfigureAwait(false);
 
-        _automation.RightClickElement(row);
+        _automation.RightClickGridRowForContextMenu(row);
         AutomationDevLog.Report(progress, $"rowID={candidate.RowId} 已在目标行执行右键，坐标=({clickX},{clickY})。");
         await Task.Delay(280, ct).ConfigureAwait(false);
         var menuItem = _automation.FindMenuItem("显示此号");

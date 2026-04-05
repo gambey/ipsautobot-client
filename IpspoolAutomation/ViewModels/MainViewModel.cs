@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -59,16 +62,18 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _checkinStatusMessage = "";
     [ObservableProperty] private string _checkinLogText = "";
     [ObservableProperty] private string _nextCheckinAtText = "--";
+    [ObservableProperty] private string _todayAutoCheckinStatusText = "今日自动签到：未执行";
+    [ObservableProperty] private bool _isTodayAutoCheckinDone;
     [ObservableProperty] private string _merchantPath = "";
     [ObservableProperty] private string _helperPath = "";
     [ObservableProperty] private string _withdrawName = "";
     [ObservableProperty] private string _alipayAccount = "";
     [ObservableProperty] private bool _keepReserve235000;
 
-    /// <summary>提现额度单选：<c>Auto</c>、<c>100</c>、<c>200</c>、<c>300</c>、<c>500</c>、<c>1000</c>。</summary>
+    /// <summary>提现额度下拉：<c>Auto</c>、<c>100</c>、<c>200</c>、<c>300</c>、<c>500</c>、<c>1000</c>。</summary>
     [ObservableProperty] private string _withdrawCoinPreset = "Auto";
 
-    /// <summary>兑换页「兑换额度」单选，与提现额度独立。</summary>
+    /// <summary>兑换页「兑换额度」下拉，与提现额度独立。</summary>
     [ObservableProperty] private string _exchangeCoinPreset = "Auto";
     [ObservableProperty] private bool _isAgentPayMode = true;
     [ObservableProperty] private bool _isRegionalAgentMode;
@@ -94,6 +99,26 @@ public sealed partial class MainViewModel : ObservableObject
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "IpspoolAutomation",
         "ui-settings.json");
+
+    /// <summary>运行时用程序集元数据判断是否为 Debug 构建，避免 #if / DefineConstants 与设计时不一致导致按钮永远不显示。</summary>
+    private static readonly bool IsDebugBuildComputed = ComputeIsDebugBuild();
+
+    private static bool ComputeIsDebugBuild()
+    {
+        var assembly = typeof(MainViewModel).Assembly;
+        var cfg = assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration?.Trim();
+        if (!string.IsNullOrEmpty(cfg))
+        {
+            if (string.Equals(cfg, "Debug", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(cfg, "Release", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        // 无配置名时：Debug 构建通常带 JIT 跟踪；Release 优化版一般为 false
+        var dbg = assembly.GetCustomAttribute<DebuggableAttribute>();
+        return dbg is { IsJITTrackingEnabled: true };
+    }
 
     public MainViewModel(
         IAuthService authService,
@@ -140,6 +165,8 @@ public sealed partial class MainViewModel : ObservableObject
         _checkinScheduler.Start();
         RefreshCheckinSchedule();
         RefreshProfileOnStartup();
+        // 确保设置页「打开路径」等依赖 IsDebugBuild 的绑定在 DataContext 就绪后刷新一次
+        OnPropertyChanged(nameof(IsDebugBuild));
     }
 
     public void SetOnLogout(Action callback) => _onLogout = callback;
@@ -150,6 +177,9 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
     public bool IsCheckinPage => CurrentPage == "签到";
     public bool IsSettingsPage => CurrentPage == "设置";
+
+    public bool IsDebugBuild => IsDebugBuildComputed;
+
     public bool IsExecuteEnabled => IsImmediateCheckinMode && !IsRunning && CanUseAutomationFeatures();
     public bool IsScheduleEnabled => IsScheduledCheckinMode;
 
@@ -170,6 +200,20 @@ public sealed partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void GoSettings() => SetCurrentPage("设置");
+
+    [RelayCommand]
+    private void ClearWithdrawLog()
+    {
+        LogLines.Clear();
+        LogText = "";
+    }
+
+    [RelayCommand]
+    private void ClearExchangeLog()
+    {
+        ExchangeLogLines.Clear();
+        ExchangeLogText = "";
+    }
 
     [RelayCommand]
     private async Task ExecuteCheckin()
@@ -255,7 +299,11 @@ public sealed partial class MainViewModel : ObservableObject
                 NextCheckinAtText = _nextScheduledCheckinAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "--";
                 CheckinStatusMessage += $" 下次计划时间：{_nextScheduledCheckinAt:HH:mm:ss}";
                 if (!isManual)
+                {
                     _lastAutoCheckinDate = DateOnly.FromDateTime(DateTime.Now);
+                    PersistLastAutoCheckinDate();
+                    RefreshTodayAutoCheckinStatus();
+                }
             }
         }
         catch (OperationCanceledException)
@@ -275,6 +323,8 @@ public sealed partial class MainViewModel : ObservableObject
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
             StartExchangeScoreCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
+            if (isManual)
+                RefreshTodayAutoCheckinStatus();
         }
     }
 
@@ -577,11 +627,11 @@ public sealed partial class MainViewModel : ObservableObject
     {
         try
         {
-            _dailyCheckSettingsService.Save(new DailyCheckSettingsData
-            {
-                Mode = CheckinMode,
-                StartTime = CheckinStartTime
-            });
+            var persisted = _dailyCheckSettingsService.Load();
+            persisted.Mode = CheckinMode;
+            persisted.StartTime = CheckinStartTime;
+            persisted.LastAutoCheckinDate = _lastAutoCheckinDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            _dailyCheckSettingsService.Save(persisted);
             RefreshCheckinSchedule();
 
             if (IsScheduledCheckinMode)
@@ -659,6 +709,25 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void OpenUserSettingsFolder()
+    {
+        try
+        {
+            var dir = ClientSettingsPaths.LegacyAppDirectory;
+            Directory.CreateDirectory(dir);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = dir,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            SettingsSaveStatus = $"无法打开设置目录：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     private void LoadSettings()
     {
         LoadLocalSettings();
@@ -681,7 +750,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void OpenWithdrawOnlySettings()
     {
         var vm = new CaptureSettingsViewModel(_withdrawOnlySettingsService, WithdrawOnlyTargetList);
-        var window = new CaptureSettingsWindow("仅兑换不提现 - 自动化设置")
+        var window = new CaptureSettingsWindow("仅提现设置 - 自动化设置")
         {
             DataContext = vm
         };
@@ -996,11 +1065,40 @@ public sealed partial class MainViewModel : ObservableObject
                 CheckinStartTime = data.StartTime;
             else if (string.IsNullOrWhiteSpace(CheckinStartTime))
                 CheckinStartTime = "07:00";
+
+            if (!string.IsNullOrWhiteSpace(data.LastAutoCheckinDate) &&
+                DateOnly.TryParse(data.LastAutoCheckinDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var lastAuto))
+                _lastAutoCheckinDate = lastAuto;
+            else
+                _lastAutoCheckinDate = null;
+
             RefreshCheckinSchedule();
+            RefreshTodayAutoCheckinStatus();
         }
         catch (Exception ex)
         {
             CheckinStatusMessage = $"读取签到配置失败：{ex.Message}";
+        }
+    }
+
+    private void RefreshTodayAutoCheckinStatus()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        IsTodayAutoCheckinDone = _lastAutoCheckinDate == today;
+        TodayAutoCheckinStatusText = IsTodayAutoCheckinDone ? "今日自动签到：已执行" : "今日自动签到：未执行";
+    }
+
+    private void PersistLastAutoCheckinDate()
+    {
+        try
+        {
+            var data = _dailyCheckSettingsService.Load();
+            data.LastAutoCheckinDate = _lastAutoCheckinDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            _dailyCheckSettingsService.Save(data);
+        }
+        catch
+        {
+            // 持久化失败不影响本次签到逻辑
         }
     }
 
@@ -1019,6 +1117,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async void OnCheckinSchedulerTick(object? sender, EventArgs e)
     {
+        RefreshTodayAutoCheckinStatus();
         if (!IsScheduledCheckinMode || _nextScheduledCheckinAt == null)
             return;
         if (IsRunning)

@@ -77,4 +77,12 @@ internal static class NativeInput
         mouse_event(MouseeventfLeftdown, 0, 0, 0, 0);
         mouse_event(MouseeventfLeftup, 0, 0, 0, 0);
     }
+
+    internal static void RightClickAt(int x, int y)
+    {
+        SetCursorPos(x, y);
+        Thread.Sleep(40);
+        mouse_event(MouseeventfRightdown, 0, 0, 0, 0);
+        mouse_event(MouseeventfRightup, 0, 0, 0, 0);
+    }
 }
