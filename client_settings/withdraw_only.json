@@ -1,0 +1,121 @@
+{
+  "CaptureTargetList": [
+    {
+      "TargetID": 1,
+      "TargetType": "button",
+      "TargetText": "\u8BAF\u5E01\u5151\u73B0",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 2,
+      "TargetType": "button",
+      "TargetText": "\u8BAF\u5E01\u63D0\u73B0",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 3,
+      "TargetType": "dropList",
+      "TargetText": "",
+      "AnchorType": null,
+      "AnchorText": "\u63D0\u73B0\u91D1\u989D",
+      "OffsetX": 90,
+      "OffsetY": 10,
+      "Action": "click_select",
+      "InputValue": "{$coins}",
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 4,
+      "TargetType": "inputBox",
+      "TargetText": "",
+      "AnchorType": "text",
+      "AnchorText": "\u59D3\u540D",
+      "OffsetX": 70,
+      "OffsetY": 5,
+      "Action": "moveTo_click_input",
+      "InputValue": "{$WithdrawName}",
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 5,
+      "TargetType": "inputBox",
+      "TargetText": "",
+      "AnchorType": "text",
+      "AnchorText": "\u652F\u4ED8\u5B9D",
+      "OffsetX": 90,
+      "OffsetY": 5,
+      "Action": "moveTo_click_input",
+      "InputValue": "{$AlipayAccount}",
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 6,
+      "TargetType": "radioBtn",
+      "TargetText": "1\u7EA7\u62162\u7EA7\u4EE3\u7406\u4EE3\u4ED8",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 500,
+      "Remark": null
+    },
+    {
+      "TargetID": 7,
+      "TargetType": "radioBtn",
+      "TargetText": "\u4ECE\u79EF\u5206\u6263(5%)",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 500,
+      "Remark": null
+    },
+    {
+      "TargetID": 8,
+      "TargetType": "button",
+      "TargetText": "\u63D0\u4EA4",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 1000,
+      "Remark": null
+    },
+    {
+      "TargetID": 9,
+      "TargetType": "dialog",
+      "TargetText": "\u8FC5\u6377\u4E91\u5546\u5BB6\u7248",
+      "AnchorType": "button",
+      "AnchorText": "\u786E\u5B9A",
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 300,
+      "Remark": "\u63D0\u73B0\u65F6\u95F4\u672A\u5230"
+    }
+  ]
+}

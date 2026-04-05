@@ -33,6 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IWithdrawDailyService _withdrawDailyService;
     private CancellationTokenSource? _cts;
     private Action? _onLogout;
+    private bool _suppressUiSettingsPersist;
     private readonly DispatcherTimer _checkinScheduler = new() { Interval = TimeSpan.FromSeconds(15) };
     private DateTime? _nextScheduledCheckinAt;
     private DateOnly? _lastAutoCheckinDate;
@@ -683,28 +684,47 @@ public sealed partial class MainViewModel : ObservableObject
     {
         try
         {
-            var dir = Path.GetDirectoryName(LocalSettingsPath);
-            if (!string.IsNullOrWhiteSpace(dir))
-                Directory.CreateDirectory(dir);
-
-            var payload = new LocalUiSettings
-            {
-                MerchantPath = MerchantPath,
-                HelperPath = HelperPath,
-                WithdrawName = WithdrawName,
-                AlipayAccount = AlipayAccount,
-                PaymentMode = IsRegionalAgentMode ? "RegionalAgent" : "AgentPay",
-                FeeMode = IsFeeFromPoints ? "FromPoints5Percent" : "None",
-                WithdrawCoinPreset = WithdrawCoinPreset,
-                ExchangeCoinPreset = ExchangeCoinPreset
-            };
-            var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(LocalSettingsPath, json);
+            WriteLocalUiSettingsFile();
             SettingsSaveStatus = $"保存成功！";
         }
         catch (Exception ex)
         {
             SettingsSaveStatus = $"保存失败：{ex.Message}";
+        }
+    }
+
+    private LocalUiSettings BuildLocalUiSettingsPayload() => new()
+    {
+        MerchantPath = MerchantPath,
+        HelperPath = HelperPath,
+        WithdrawName = WithdrawName,
+        AlipayAccount = AlipayAccount,
+        PaymentMode = IsRegionalAgentMode ? "RegionalAgent" : "AgentPay",
+        FeeMode = IsFeeFromPoints ? "FromPoints5Percent" : "None",
+        WithdrawCoinPreset = WithdrawCoinPreset,
+        ExchangeCoinPreset = ExchangeCoinPreset
+    };
+
+    private void WriteLocalUiSettingsFile()
+    {
+        var dir = Path.GetDirectoryName(LocalSettingsPath);
+        if (!string.IsNullOrWhiteSpace(dir))
+            Directory.CreateDirectory(dir);
+
+        var payload = BuildLocalUiSettingsPayload();
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(LocalSettingsPath, json);
+    }
+
+    private void PersistCoinPresetsToUiSettingsQuietly()
+    {
+        try
+        {
+            WriteLocalUiSettingsFile();
+        }
+        catch (Exception ex)
+        {
+            SettingsSaveStatus = $"保存额度偏好失败：{ex.Message}";
         }
     }
 
@@ -724,6 +744,25 @@ public sealed partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             SettingsSaveStatus = $"无法打开设置目录：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task UpdateClientSettingsFromServer()
+    {
+        SettingsSaveStatus = "设置更新中…";
+        var result = await _authService.RefreshClientSettingsFromServerAsync().ConfigureAwait(true);
+        if (result.Success)
+        {
+            SettingsSaveStatus = "设置更新成功！";
+            LoadCaptureTargetSettings();
+            LoadWithdrawOnlySettings();
+            LoadExchangeScoreSettings();
+            LoadDailyCheckExeSettings();
+        }
+        else
+        {
+            SettingsSaveStatus = result.Message ?? "更新失败。";
         }
     }
 
@@ -939,6 +978,24 @@ public sealed partial class MainViewModel : ObservableObject
         return p is "100" or "200" or "300" or "500" or "1000";
     }
 
+    partial void OnWithdrawCoinPresetChanged(string value)
+    {
+        if (_suppressUiSettingsPersist)
+            return;
+        if (!IsValidWithdrawCoinPreset(value))
+            return;
+        PersistCoinPresetsToUiSettingsQuietly();
+    }
+
+    partial void OnExchangeCoinPresetChanged(string value)
+    {
+        if (_suppressUiSettingsPersist)
+            return;
+        if (!IsValidWithdrawCoinPreset(value))
+            return;
+        PersistCoinPresetsToUiSettingsQuietly();
+    }
+
     partial void OnIsAgentPayModeChanged(bool value)
     {
         if (value) IsRegionalAgentMode = false;
@@ -953,6 +1010,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void LoadLocalSettings()
     {
+        _suppressUiSettingsPersist = true;
         try
         {
             if (!File.Exists(LocalSettingsPath))
@@ -985,6 +1043,10 @@ public sealed partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             SettingsSaveStatus = $"读取设置失败：{ex.Message}";
+        }
+        finally
+        {
+            _suppressUiSettingsPersist = false;
         }
     }
 

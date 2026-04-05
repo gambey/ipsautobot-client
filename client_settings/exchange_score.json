@@ -1,0 +1,43 @@
+{
+  "CaptureTargetList": [
+    {
+      "TargetID": 1,
+      "TargetType": "button",
+      "TargetText": "\u8BAF\u5E01\u5151\u73B0",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 2,
+      "TargetType": "button",
+      "TargetText": "\u79EF\u5206\u8BAF\u5E01\u5E02\u573A",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 0,
+      "OffsetY": 0,
+      "Action": "click",
+      "InputValue": null,
+      "DelayMs": 300,
+      "Remark": null
+    },
+    {
+      "TargetID": 3,
+      "TargetType": "window",
+      "TargetText": "",
+      "AnchorType": null,
+      "AnchorText": null,
+      "OffsetX": 180,
+      "OffsetY": 600,
+      "Action": "moveTo_click_input",
+      "InputValue": "{$coins}",
+      "DelayMs": 300,
+      "Remark": null
+    }
+  ]
+}

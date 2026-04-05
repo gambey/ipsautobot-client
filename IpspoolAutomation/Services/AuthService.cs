@@ -192,16 +192,50 @@ public sealed class AuthService : IAuthService
         if (!archive.Success || archive.Data == null || archive.Data.Length == 0)
             return;
 
-        Directory.CreateDirectory(destDir);
-        var tempZip = Path.Combine(Path.GetTempPath(), "ipspool-client-settings-" + Guid.NewGuid().ToString("N") + ".zip");
         try
         {
-            await File.WriteAllBytesAsync(tempZip, archive.Data, cancellationToken).ConfigureAwait(false);
-            ZipFile.ExtractToDirectory(tempZip, destDir, overwriteFiles: true);
+            await ExtractClientSettingsZipAsync(destDir, archive.Data, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
             // Login still succeeds; user may add targetSettings.json manually.
+        }
+    }
+
+    public async Task<ClientSettingsRefreshResult> RefreshClientSettingsFromServerAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsLoggedIn)
+            return new ClientSettingsRefreshResult(false, "请先登录后再更新设置。");
+
+        var destDir = Path.GetDirectoryName(_captureTargetSettings.SettingsPath);
+        if (string.IsNullOrWhiteSpace(destDir))
+            return new ClientSettingsRefreshResult(false, "无法解析本地配置目录。");
+
+        var archive = await _api.DownloadClientSettingsZipAsync(cancellationToken).ConfigureAwait(false);
+        if (!archive.Success)
+            return new ClientSettingsRefreshResult(false, archive.Message ?? "下载失败");
+        if (archive.Data == null || archive.Data.Length == 0)
+            return new ClientSettingsRefreshResult(false, "配置包为空");
+
+        try
+        {
+            await ExtractClientSettingsZipAsync(destDir, archive.Data, cancellationToken).ConfigureAwait(false);
+            return new ClientSettingsRefreshResult(true, null);
+        }
+        catch (Exception ex)
+        {
+            return new ClientSettingsRefreshResult(false, ex.Message);
+        }
+    }
+
+    private static async Task ExtractClientSettingsZipAsync(string destDir, byte[] data, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(destDir);
+        var tempZip = Path.Combine(Path.GetTempPath(), "ipspool-client-settings-" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            await File.WriteAllBytesAsync(tempZip, data, cancellationToken).ConfigureAwait(false);
+            ZipFile.ExtractToDirectory(tempZip, destDir, overwriteFiles: true);
         }
         finally
         {
