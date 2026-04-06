@@ -117,6 +117,9 @@ public partial class App : Application
         var dailyCheckSettingsService = new DailyCheckSettingsService();
         var withdrawRecordsService = new WithdrawRecordsService();
         var withdrawDailyService = new WithdrawDailyService();
+        var autoAcceptOrderSettingsService = new AutoAcceptOrderSettingsService();
+        var stopPlatformOrderingSettingsService = new StopPlatformOrderingSettingsService();
+        var startPlatformOrderingSettingsService = new StartPlatformOrderingSettingsService();
         var vm = new MainViewModel(
             _authService!,
             _networkBindingGuard!,
@@ -128,7 +131,10 @@ public partial class App : Application
             dailyCheckExeService,
             dailyCheckSettingsService,
             withdrawRecordsService,
-            withdrawDailyService);
+            withdrawDailyService,
+            autoAcceptOrderSettingsService,
+            stopPlatformOrderingSettingsService,
+            startPlatformOrderingSettingsService);
         vm.SetOnLogout(() =>
         {
             mainWindow.Hide();

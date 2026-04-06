@@ -711,8 +711,31 @@ public class XunjieAutomationWorkflow
         {
             if (target == null)
                 return false;
-            _automation.LeftClickElement(target);
-            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} click 完成。");
+            if (IsCheckboxTargetType(step.TargetType))
+            {
+                _automation.ToggleOrClickCheckbox(target);
+                AutomationDevLog.Report(progress, $"步骤#{step.TargetID} checkbox Toggle/click 完成。");
+            }
+            else
+            {
+                _automation.LeftClickElement(target);
+                AutomationDevLog.Report(progress, $"步骤#{step.TargetID} click 完成。");
+            }
+            return true;
+        }
+
+        if (action is "select" or "unselect")
+        {
+            if (target == null)
+                return false;
+            var wantSelected = action == "select";
+            if (!_automation.TrySetSelectionState(target, wantSelected, out var selDiag))
+            {
+                progress.Report($"配置步骤#{step.TargetID} 动作 {action} 失败：{selDiag ?? "未知原因"}。");
+                return false;
+            }
+
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} {action} 完成。");
             return true;
         }
 
@@ -768,6 +791,10 @@ public class XunjieAutomationWorkflow
         return true;
     }
 
+    private static bool IsCheckboxTargetType(string? targetType) =>
+        string.Equals(targetType, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(targetType, "勾选框", StringComparison.Ordinal);
+
     private static string NormalizeAction(string? action)
     {
         if (string.Equals(action, "moveTo_click_input", StringComparison.OrdinalIgnoreCase))
@@ -779,6 +806,12 @@ public class XunjieAutomationWorkflow
             return "click_select";
         if (string.Equals(action, "solve_math", StringComparison.OrdinalIgnoreCase))
             return "solve_math";
+        if (string.Equals(action, "select", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(action, "选中", StringComparison.Ordinal))
+            return "select";
+        if (string.Equals(action, "unselect", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(action, "取消选中", StringComparison.Ordinal))
+            return "unselect";
         return "click";
     }
 
@@ -969,6 +1002,12 @@ fallbackNearest:
             string.Equals(typeText, "下拉列表", StringComparison.Ordinal))
         {
             controlType = ControlType.ComboBox;
+            return true;
+        }
+        if (string.Equals(typeText, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(typeText, "勾选框", StringComparison.Ordinal))
+        {
+            controlType = ControlType.CheckBox;
             return true;
         }
         if (string.Equals(typeText, "window", StringComparison.OrdinalIgnoreCase) ||
@@ -1329,4 +1368,20 @@ fallbackNearest:
             return (0, 0);
         }
     }
+
+    /// <summary>供自动接单：辅助列表右键「显示此号」。</summary>
+    public Task<bool> ShowHelperAccountForAutomationAsync(
+        AutomationElement helperRoot,
+        WithdrawCandidateRow candidate,
+        IProgress<string> progress,
+        CancellationToken ct)
+        => ShowAccountOnMerchantAsync(helperRoot, candidate, progress, ct);
+
+    /// <summary>供自动接单：仅执行捕捉步骤（无提现表单字段）。</summary>
+    public Task<bool> ExecuteCaptureStepsAsync(
+        AutomationElement merchantRoot,
+        IReadOnlyList<CaptureTargetItem> steps,
+        IProgress<string> progress,
+        CancellationToken ct)
+        => ExecuteConfiguredMerchantActionsAsync(merchantRoot, steps, 0, "", "", "", progress, ct);
 }

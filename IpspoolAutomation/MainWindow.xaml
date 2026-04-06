@@ -47,6 +47,8 @@
                     <Button Content="提现详情" Command="{Binding GoWithdrawDetailCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10" Click="Button_Click"/>
                     <Button Content="签到" Command="{Binding GoCheckinCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <Button Content="自动接单" Command="{Binding GoAutoAcceptOrderCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <Button Content="平台单管理" Command="{Binding GoPlatformOrderManagementCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="设置" Command="{Binding GoSettingsCommand}" Margin="0,0,0,8" Padding="12,10"/>
                 </StackPanel>
             </Border>
@@ -273,6 +275,131 @@
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </Border>
+                        </Grid>
+
+                        <Grid Visibility="{Binding IsAutoAcceptOrderPage, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{Binding AutoAcceptStatusMessage}" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="启动" Command="{Binding StartAutoAcceptCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                   
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock Text="最高可接受退款率（%）" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                    <Slider Width="220" Minimum="0" Maximum="100" SmallChange="1" LargeChange="5"
+                                            Value="{Binding TargetRefundRatePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="{Binding TargetRefundRatePercent, StringFormat={}{0:F0}%}" HorizontalAlignment="Right" FontSize="12" Foreground="#FF6B7280"/>
+                                </StackPanel>
+                            </Grid>
+                            <Border Grid.Row="2" Padding="10,8" Margin="0,0,0,10" Background="#FFF9FAFB" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="4">
+                                <StackPanel>
+                                    <TextBlock FontWeight="SemiBold" Margin="0,0,0,6" Text="汇总"/>
+                                    <WrapPanel>
+                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryHighDiffSum, StringFormat=高差和：{0:F2}}"/>
+                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryAvgDiffSum, StringFormat=均差和：{0:F2}}"/>
+                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryHighDiffRatioAvgPercent, StringFormat=高差和比(均值)：{0:F2}%}"/>
+                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryAvgDiffRatioAvgPercent, StringFormat=均差和比(均值)：{0:F2}%}"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Row="3" BorderBrush="#FF707070" BorderThickness="1" Margin="0,0,0,10">
+                                <DataGrid ItemsSource="{Binding AcceptedOrderRows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                          GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36" MaxHeight="220">
+                                    <DataGrid.Resources>
+                                        <Style TargetType="DataGridColumnHeader">
+                                            <Setter Property="Background" Value="#FF15A8E9"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Setter Property="Height" Value="36"/>
+                                            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        </Style>
+                                    </DataGrid.Resources>
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="账号" Binding="{Binding Username}" Width="1.2*"/>
+                                        <DataGridTextColumn Header="订单号" Binding="{Binding OrderNumber}" Width="1.2*"/>
+                                        <DataGridTextColumn Header="单价" Binding="{Binding UnitPrice, StringFormat=F4}" Width="*"/>
+                                        <DataGridTextColumn Header="高差" Binding="{Binding HighDiff, StringFormat=F2}" Width="*"/>
+                                        <DataGridTextColumn Header="高差比%" Binding="{Binding HighDiffRatioPercent, StringFormat=F2}" Width="*"/>
+                                        <DataGridTextColumn Header="均差" Binding="{Binding AvgDiff, StringFormat=F2}" Width="*"/>
+                                        <DataGridTextColumn Header="均差比%" Binding="{Binding AvgDiffRatioPercent, StringFormat=F2}" Width="*"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Border>
+                            <Grid Grid.Row="4">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Content="自动接单设置" Command="{Binding OpenAutoAcceptSettingsCommand}" Padding="12,6"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </StackPanel>
+                                <TextBox Grid.Row="1"
+                                         Text="{Binding AutoAcceptLogText}"
+                                         IsReadOnly="True"
+                                         TextWrapping="Wrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         AcceptsReturn="True"
+                                         FontFamily="Consolas"
+                                         FontSize="12"
+                                         BorderBrush="#FFE5E7EB"
+                                         BorderThickness="1"
+                                         Padding="8"
+                                         MinHeight="180"/>
+                            </Grid>
+                        </Grid>
+
+                        <Grid Visibility="{Binding IsPlatformOrderManagementPage, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{Binding PlatformOrderManagementStatusMessage}" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="停止平台单" Command="{Binding StartStopPlatformOrderingCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="启用平台单" Command="{Binding StartEnablePlatformOrderingCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,16,0"/>
+                                    <TextBlock Text="操作账号数量" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBox Width="72" Text="{Binding PlatformOrderAccountCountText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" VerticalContentAlignment="Center"/>
+                                    
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="停止平台单设置" Command="{Binding OpenStopPlatformOrderingSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <Button Content="启用平台单设置" Command="{Binding OpenStartPlatformOrderingSettingsCommand}" Padding="12,6"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </Grid>
+                            <TextBox Grid.Row="2"
+                                     Text="{Binding PlatformOrderManagementLogText}"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     AcceptsReturn="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     BorderBrush="#FFE5E7EB"
+                                     BorderThickness="1"
+                                     Padding="8"
+                                     MinHeight="220"/>
                         </Grid>
 
                         <Grid Visibility="{Binding IsCheckinPage, Converter={StaticResource BoolToVisibilityConverter}}">

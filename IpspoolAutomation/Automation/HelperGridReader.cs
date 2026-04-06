@@ -13,12 +13,13 @@ internal static class HelperGridReader
             ?? root.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.List));
     }
 
-    internal static bool TryMapColumnIndices(AutomationElement grid, out int userCol, out int scoreCol, out int selectCol, out int coinCol)
+    internal static bool TryMapColumnIndices(AutomationElement grid, out int userCol, out int scoreCol, out int selectCol, out int coinCol, out int acceptedOrderCol)
     {
         userCol = -1;
         scoreCol = -1;
         selectCol = -1;
         coinCol = -1;
+        acceptedOrderCol = -1;
         try
         {
             var headers = grid.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.HeaderItem));
@@ -37,6 +38,8 @@ internal static class HelperGridReader
                             selectCol = i;
                         if (n.Contains("讯币", StringComparison.Ordinal))
                             coinCol = i;
+                        if (n.Contains("已接订单", StringComparison.Ordinal))
+                            acceptedOrderCol = i;
                     }
                     catch { /* ignore */ }
                 }
@@ -62,6 +65,8 @@ internal static class HelperGridReader
                         selectCol = i;
                     if (t.Contains("讯币", StringComparison.Ordinal))
                         coinCol = i;
+                    if (t.Contains("已接订单", StringComparison.Ordinal))
+                        acceptedOrderCol = i;
                 }
             }
         }
@@ -152,7 +157,7 @@ internal static class HelperGridReader
             return result;
         }
 
-        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out _))
+        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out _, out _))
         {
             progress?.Report("警告：未能通过列头映射「用户名」「可提收益」，将按行内单元格顺序猜测列索引。");
             userCol = 0;
@@ -246,7 +251,7 @@ internal static class HelperGridReader
             return result;
         }
 
-        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out _))
+        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out _, out _))
         {
             progress?.Report("警告：未能通过列头映射「用户名」「可提收益」，将按行内单元格顺序猜测列索引。");
             userCol = 0;
@@ -345,7 +350,7 @@ internal static class HelperGridReader
             return result;
         }
 
-        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out var coinCol))
+        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out var coinCol, out _))
         {
             progress?.Report("警告：未能通过列头映射「用户名」「可提收益」，将按行内单元格顺序猜测列索引。");
             userCol = 0;
@@ -460,7 +465,7 @@ internal static class HelperGridReader
         var grid = FindMainGrid(helperRoot);
         if (grid == null)
             return null;
-        if (!TryMapColumnIndices(grid, out var userCol, out _, out _, out _))
+        if (!TryMapColumnIndices(grid, out var userCol, out _, out _, out _, out _))
             userCol = 0;
 
         AutomationElementCollection? dataItems = null;
@@ -485,5 +490,115 @@ internal static class HelperGridReader
                 return row;
         }
         return null;
+    }
+
+    /// <summary>自动接单：可提收益仍须 &gt; <see cref="MinWithdrawableScore"/>，且「已接订单」列解析值 &lt; 2。</summary>
+    internal static List<AutoAcceptHelperCandidate> CollectCandidatesForAutoAccept(
+        AutomationElement helperRoot,
+        IProgress<string>? progress,
+        int minScoreExclusive = MinWithdrawableScore)
+    {
+        var result = new List<AutoAcceptHelperCandidate>();
+        var grid = FindMainGrid(helperRoot);
+        if (grid == null)
+        {
+            progress?.Report("未在辅助窗口中找到表格/列表控件。");
+            return result;
+        }
+
+        if (!TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out _, out var acceptedOrderCol))
+        {
+            progress?.Report("警告：未能通过列头映射「用户名」「可提收益」，将按行内单元格顺序猜测列索引。");
+            userCol = 0;
+            scoreCol = -1;
+            selectCol = -1;
+            acceptedOrderCol = -1;
+        }
+
+        if (acceptedOrderCol < 0)
+            progress?.Report("警告：未映射到「已接订单」列，无法筛选已接订单&lt;2 的账号。");
+
+        if (selectCol < 0)
+            progress?.Report("提示：未映射到「选择」列，rowID 将保持为 0。");
+
+        AutomationElementCollection? dataItems = null;
+        try
+        {
+            dataItems = grid.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.DataItem));
+        }
+        catch
+        {
+            progress?.Report("读取表格行失败。");
+            return result;
+        }
+
+        if (dataItems == null || dataItems.Count == 0)
+        {
+            progress?.Report("表格中未找到数据行。");
+            return result;
+        }
+
+        for (var i = 0; i < dataItems.Count; i++)
+        {
+            AutomationElement row;
+            try
+            {
+                row = dataItems[i];
+            }
+            catch
+            {
+                continue;
+            }
+
+            var cells = CollectRowCellTexts(row);
+            if (cells.Count == 0)
+                continue;
+
+            string user;
+            if (userCol >= 0 && userCol < cells.Count)
+                user = cells[userCol].Trim();
+            else
+                user = cells[0].Trim();
+
+            string scoreText;
+            if (scoreCol >= 0 && scoreCol < cells.Count)
+                scoreText = cells[scoreCol];
+            else
+            {
+                scoreText = "";
+                for (var j = cells.Count - 1; j >= 0; j--)
+                {
+                    if (TryParseScore(cells[j], out _))
+                    {
+                        scoreText = cells[j];
+                        break;
+                    }
+                }
+            }
+
+            if (!TryParseScore(scoreText, out var score))
+                continue;
+            if (score <= minScoreExclusive)
+                continue;
+            if (string.IsNullOrWhiteSpace(user))
+                continue;
+
+            if (acceptedOrderCol >= 0 && acceptedOrderCol < cells.Count)
+            {
+                var aoText = cells[acceptedOrderCol].Trim().Replace(",", "").Replace("，", "");
+                if (!int.TryParse(aoText, out var ao) || ao >= 2)
+                    continue;
+            }
+            else
+                continue;
+
+            var rowId = 0;
+            if (selectCol >= 0 && selectCol < cells.Count && TryParseScore(cells[selectCol].Trim(), out var rid))
+                rowId = rid;
+
+            result.Add(new AutoAcceptHelperCandidate(user, score, rowId));
+        }
+
+        return result;
     }
 }

@@ -14,8 +14,8 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
     [ObservableProperty] private string _statusMessage = "";
 
     public ObservableCollection<CaptureTargetItemRowViewModel> CaptureTargets { get; } = new();
-    public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "window", "dialog" };
-    public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
+    public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "checkbox", "window", "dialog" };
+    public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "select", "unselect", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
 
     public CaptureSettingsViewModel(
         ICaptureTargetListPersistence persistence,
@@ -172,6 +172,9 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
             string.Equals(v, "下拉框", StringComparison.Ordinal) ||
             string.Equals(v, "下拉列表", StringComparison.Ordinal))
             return "dropList";
+        if (string.Equals(v, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(v, "勾选框", StringComparison.Ordinal))
+            return "checkbox";
         if (string.Equals(v, "window", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(v, "窗口", StringComparison.Ordinal))
             return "window";
@@ -195,6 +198,12 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
             return "click_select";
         if (string.Equals(value, "solve_math", StringComparison.OrdinalIgnoreCase))
             return "solve_math";
+        if (string.Equals(value, "select", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "选中", StringComparison.Ordinal))
+            return "select";
+        if (string.Equals(value, "unselect", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "取消选中", StringComparison.Ordinal))
+            return "unselect";
         return "click";
     }
 }

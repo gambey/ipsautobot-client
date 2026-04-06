@@ -48,6 +48,10 @@ public interface IAutomationService
     bool TryBringDataItemToTop(AutomationElement dataItem, int maxSteps = 20);
     bool TryScrollToBottom(AutomationElement contextElement);
     void LeftClickElement(AutomationElement element);
+    /// <summary>勾选框：优先 TogglePattern，否则左键单击。</summary>
+    void ToggleOrClickCheckbox(AutomationElement element);
+    /// <summary>将控件设为选中/未选中：优先 TogglePattern（checkbox 等），其次 SelectionItemPattern（列表项、部分 radio）。</summary>
+    bool TrySetSelectionState(AutomationElement element, bool selected, out string? failureReason);
     void LeftClickAt(int x, int y);
     void RightClickElement(AutomationElement element);
 

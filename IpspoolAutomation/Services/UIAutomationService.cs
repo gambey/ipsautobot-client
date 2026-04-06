@@ -1181,6 +1181,118 @@ public sealed class UIAutomationService : IAutomationService
         }
     }
 
+    public void ToggleOrClickCheckbox(AutomationElement element)
+    {
+        try
+        {
+            if (element.TryGetCurrentPattern(TogglePattern.Pattern, out var tpObj) && tpObj is TogglePattern tp)
+            {
+                tp.Toggle();
+                return;
+            }
+        }
+        catch
+        {
+            // fall through to click
+        }
+
+        LeftClickElement(element);
+    }
+
+    public bool TrySetSelectionState(AutomationElement element, bool selected, out string? failureReason)
+    {
+        failureReason = null;
+        if (element == null)
+        {
+            failureReason = "目标元素为空。";
+            return false;
+        }
+
+        try
+        {
+            if (element.TryGetCurrentPattern(TogglePattern.Pattern, out var tObj) && tObj is TogglePattern tp)
+                return TrySetStateViaTogglePattern(tp, selected, out failureReason);
+
+            if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var sObj) && sObj is SelectionItemPattern sip)
+            {
+                try
+                {
+                    if (selected)
+                        sip.Select();
+                    else
+                        sip.RemoveFromSelection();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    failureReason = ex.Message;
+                    if (selected)
+                    {
+                        LeftClickElement(element);
+                        return true;
+                    }
+
+                    return false;
+                }
+            }
+
+            if (selected)
+            {
+                LeftClickElement(element);
+                return true;
+            }
+
+            failureReason = "不支持取消选中：控件无 TogglePattern 或 SelectionItemPattern。";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            failureReason = ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TrySetStateViaTogglePattern(TogglePattern tp, bool selected, out string? failureReason)
+    {
+        failureReason = null;
+        for (var i = 0; i < 6; i++)
+        {
+            ToggleState s;
+            try
+            {
+                s = tp.Current.ToggleState;
+            }
+            catch (Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
+
+            if (selected)
+            {
+                if (s == ToggleState.On)
+                    return true;
+            }
+            else if (s == ToggleState.Off)
+            {
+                return true;
+            }
+
+            try
+            {
+                tp.Toggle();
+            }
+            catch (Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
+        }
+
+        failureReason = "TogglePattern：多次切换后仍未达到目标选中状态。";
+        return false;
+    }
+
     public void LeftClickElement(AutomationElement element)
     {
         NativeInput.LeftClickCenter(element);
@@ -1360,6 +1472,12 @@ public sealed class UIAutomationService : IAutomationService
             string.Equals(typeText, "下拉列表", StringComparison.Ordinal))
         {
             controlType = ControlType.ComboBox;
+            return true;
+        }
+        if (string.Equals(typeText, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(typeText, "勾选框", StringComparison.Ordinal))
+        {
+            controlType = ControlType.CheckBox;
             return true;
         }
         if (string.Equals(typeText, "window", StringComparison.OrdinalIgnoreCase) ||

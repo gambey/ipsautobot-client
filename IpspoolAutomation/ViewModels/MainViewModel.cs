@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -31,7 +32,11 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IDailyCheckSettingsService _dailyCheckSettingsService;
     private readonly IWithdrawRecordsService _withdrawRecordsService;
     private readonly IWithdrawDailyService _withdrawDailyService;
+    private readonly IAutoAcceptOrderSettingsService _autoAcceptOrderSettingsService;
+    private readonly IStopPlatformOrderingSettingsService _stopPlatformOrderingSettingsService;
+    private readonly IStartPlatformOrderingSettingsService _startPlatformOrderingSettingsService;
     private CancellationTokenSource? _cts;
+    private bool _suppressPlatformOrderAccountCountPersist;
     private Action? _onLogout;
     private bool _suppressUiSettingsPersist;
     private readonly DispatcherTimer _checkinScheduler = new() { Interval = TimeSpan.FromSeconds(15) };
@@ -82,6 +87,20 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _settingsSaveStatus = "";
     [ObservableProperty] private string _withdrawRecordsTotalDisplay = "合计：0";
 
+    [ObservableProperty] private string _autoAcceptStatusMessage = "自动接单未启动。";
+    [ObservableProperty] private string _autoAcceptLogText = "";
+    /// <summary>订单市场跳过退款率高于该值的行（0–100）。</summary>
+    [ObservableProperty] private double _targetRefundRatePercent = 100;
+    [ObservableProperty] private decimal _summaryHighDiffSum;
+    [ObservableProperty] private decimal _summaryAvgDiffSum;
+    [ObservableProperty] private decimal _summaryHighDiffRatioAvgPercent;
+    [ObservableProperty] private decimal _summaryAvgDiffRatioAvgPercent;
+
+    [ObservableProperty] private string _platformOrderManagementStatusMessage = "平台单管理未运行。";
+    [ObservableProperty] private string _platformOrderManagementLogText = "";
+    /// <summary>停止/启用平台单共用的单次操作账号数（与 stopPlatformOrdering.json、startPlatformOrdering.json 同步）。</summary>
+    [ObservableProperty] private string _platformOrderAccountCountText = "60";
+
     /// <summary>提现详情列表是否为空（用于显示「当前无提现记录」）。</summary>
     [ObservableProperty] private bool _isWithdrawDetailEmpty = true;
 
@@ -94,6 +113,9 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<CaptureTargetItem> ExchangeScoreTargetList { get; } = new();
     public ObservableCollection<CaptureTargetItem> DailyCheckTargetList { get; } = new();
     public ObservableCollection<string> CheckinLogLines { get; } = new();
+    public ObservableCollection<string> AutoAcceptLogLines { get; } = new();
+    public ObservableCollection<AcceptedOrderRow> AcceptedOrderRows { get; } = new();
+    public ObservableCollection<string> PlatformOrderManagementLogLines { get; } = new();
     public IReadOnlyList<string> CheckinTimeOptions { get; } =
         Enumerable.Range(7, 16).Select(h => $"{h:00}:00").ToList();
     private static readonly string LocalSettingsPath = Path.Combine(
@@ -132,7 +154,10 @@ public sealed partial class MainViewModel : ObservableObject
         IDailyCheckExeService dailyCheckExeService,
         IDailyCheckSettingsService dailyCheckSettingsService,
         IWithdrawRecordsService withdrawRecordsService,
-        IWithdrawDailyService withdrawDailyService)
+        IWithdrawDailyService withdrawDailyService,
+        IAutoAcceptOrderSettingsService autoAcceptOrderSettingsService,
+        IStopPlatformOrderingSettingsService stopPlatformOrderingSettingsService,
+        IStartPlatformOrderingSettingsService startPlatformOrderingSettingsService)
     {
         _authService = authService;
         _networkBindingGuard = networkBindingGuard;
@@ -145,6 +170,9 @@ public sealed partial class MainViewModel : ObservableObject
         _dailyCheckSettingsService = dailyCheckSettingsService;
         _withdrawRecordsService = withdrawRecordsService;
         _withdrawDailyService = withdrawDailyService;
+        _autoAcceptOrderSettingsService = autoAcceptOrderSettingsService;
+        _stopPlatformOrderingSettingsService = stopPlatformOrderingSettingsService;
+        _startPlatformOrderingSettingsService = startPlatformOrderingSettingsService;
         WindowTitle = string.IsNullOrWhiteSpace(_config.AppVersion)
             ? "智灵自动"
             : $"智灵自动 {_config.AppVersion}";
@@ -160,6 +188,13 @@ public sealed partial class MainViewModel : ObservableObject
         LoadDailyCheckSettings();
         LoadWithdrawRecords();
         LoadWithdrawDaily();
+        var aaSettings = _autoAcceptOrderSettingsService.Load();
+        TargetRefundRatePercent = (double)aaSettings.MaxRefundRatePercent;
+        _suppressPlatformOrderAccountCountPersist = true;
+        var platformOrderCount = Math.Max(1, _stopPlatformOrderingSettingsService.Load().StopAccountCount);
+        PlatformOrderAccountCountText = platformOrderCount.ToString();
+        PersistPlatformOrderAccountCountToBothFiles(platformOrderCount);
+        _suppressPlatformOrderAccountCountPersist = false;
         if (string.IsNullOrWhiteSpace(CheckinMode))
             CheckinMode = "Cancel";
         _checkinScheduler.Tick += OnCheckinSchedulerTick;
@@ -178,6 +213,8 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
     public bool IsCheckinPage => CurrentPage == "签到";
     public bool IsSettingsPage => CurrentPage == "设置";
+    public bool IsAutoAcceptOrderPage => CurrentPage == "自动接单";
+    public bool IsPlatformOrderManagementPage => CurrentPage == "平台单管理";
 
     public bool IsDebugBuild => IsDebugBuildComputed;
 
@@ -198,6 +235,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void GoCheckin() => SetCurrentPage("签到");
+
+    [RelayCommand]
+    private void GoAutoAcceptOrder() => SetCurrentPage("自动接单");
+
+    [RelayCommand]
+    private void GoPlatformOrderManagement() => SetCurrentPage("平台单管理");
 
     [RelayCommand]
     private void GoSettings() => SetCurrentPage("设置");
@@ -274,6 +317,9 @@ public sealed partial class MainViewModel : ObservableObject
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
         StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         if (isManual)
         {
@@ -323,6 +369,9 @@ public sealed partial class MainViewModel : ObservableObject
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
             StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
             if (isManual)
                 RefreshTodayAutoCheckinStatus();
@@ -368,6 +417,9 @@ public sealed partial class MainViewModel : ObservableObject
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
         StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         _cts = new CancellationTokenSource();
         var progress = new Progress<string>(s =>
@@ -414,6 +466,9 @@ public sealed partial class MainViewModel : ObservableObject
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
             StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
     }
@@ -464,6 +519,9 @@ public sealed partial class MainViewModel : ObservableObject
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
         StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         _cts = new CancellationTokenSource();
         var progress = new Progress<string>(s =>
@@ -513,6 +571,9 @@ public sealed partial class MainViewModel : ObservableObject
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
             StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
     }
@@ -577,6 +638,9 @@ public sealed partial class MainViewModel : ObservableObject
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
         StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         _cts = new CancellationTokenSource();
         var progress = new Progress<string>(s =>
@@ -619,6 +683,9 @@ public sealed partial class MainViewModel : ObservableObject
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
             StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
         }
     }
@@ -824,6 +891,471 @@ public sealed partial class MainViewModel : ObservableObject
         LoadDailyCheckExeSettings();
     }
 
+    [RelayCommand]
+    private void OpenAutoAcceptSettings()
+    {
+        var vm = new AutoAcceptOrderSettingsViewModel(_autoAcceptOrderSettingsService);
+        var window = new AutoAcceptOrderSettingsWindow
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        var d = _autoAcceptOrderSettingsService.Load();
+        TargetRefundRatePercent = (double)d.MaxRefundRatePercent;
+    }
+
+    [RelayCommand]
+    private void OpenStopPlatformOrderingSettings()
+    {
+        var vm = new StopPlatformOrderingSettingsViewModel(_stopPlatformOrderingSettingsService);
+        var window = new StopPlatformOrderingSettingsWindow
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        _suppressPlatformOrderAccountCountPersist = true;
+        var stopCount = Math.Max(1, _stopPlatformOrderingSettingsService.Load().StopAccountCount);
+        PlatformOrderAccountCountText = stopCount.ToString();
+        PersistPlatformOrderAccountCountToBothFiles(stopCount);
+        _suppressPlatformOrderAccountCountPersist = false;
+    }
+
+    [RelayCommand]
+    private void OpenStartPlatformOrderingSettings()
+    {
+        var vm = new StartPlatformOrderingSettingsViewModel(_startPlatformOrderingSettingsService);
+        var window = new StartPlatformOrderingSettingsWindow
+        {
+            DataContext = vm
+        };
+        vm.SetCloseAction(() => window.Close());
+        window.ShowDialog();
+        _suppressPlatformOrderAccountCountPersist = true;
+        var startCount = Math.Max(1, _startPlatformOrderingSettingsService.Load().OperationAccountCount);
+        PlatformOrderAccountCountText = startCount.ToString();
+        PersistPlatformOrderAccountCountToBothFiles(startCount);
+        _suppressPlatformOrderAccountCountPersist = false;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private async Task StartStopPlatformOrdering()
+    {
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            PlatformOrderManagementStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+
+        if (!int.TryParse(PlatformOrderAccountCountText.Trim(), out var accountCount) || accountCount < 1)
+        {
+            PlatformOrderManagementStatusMessage = "操作账号数量须为 ≥1 的整数。";
+            return;
+        }
+
+        PersistPlatformOrderAccountCountToBothFiles(accountCount);
+        var persisted = _stopPlatformOrderingSettingsService.Load();
+
+        if (persisted.CaptureTargetList == null || persisted.CaptureTargetList.Count == 0)
+        {
+            PlatformOrderManagementStatusMessage = "请先在 Debug「停止平台单设置」中配置自动化步骤（stopPlatformOrdering.json）。";
+            return;
+        }
+
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    PlatformOrderManagementStatusMessage = message;
+                    PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    PlatformOrderManagementStatusMessage = message;
+                    PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+                },
+                CancellationToken.None).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        PlatformOrderManagementStatusMessage = "停止平台单运行中…";
+        PlatformOrderManagementLogLines.Clear();
+        PlatformOrderManagementLogText = "";
+        IsRunning = true;
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        _cts = new CancellationTokenSource();
+        IProgress<string> progress = new Progress<string>(s =>
+        {
+            PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
+            PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+        });
+        try
+        {
+            var minScoreExclusive = KeepReserve235000
+                ? 235000 + HelperGridReader.MinWithdrawableScore
+                : HelperGridReader.MinWithdrawableScore;
+            progress.Report("正在启动/附着迅捷小辅助…");
+            var helperRoot = _automationService.LaunchOrAttach(HelperPath);
+            if (helperRoot == null)
+            {
+                PlatformOrderManagementStatusMessage = "无法附着迅捷辅助窗口。";
+                return;
+            }
+
+            await Task.Delay(400, _cts.Token).ConfigureAwait(true);
+            progress.Report("正在读取辅助账号列表…");
+            var raw = HelperGridReader.CollectCandidates(helperRoot, progress, minScoreExclusive);
+            var deduped = DeduplicateWithdrawCandidatesByUsername(raw);
+            var take = deduped.Take(accountCount).ToList();
+            progress.Report($"将处理前 {take.Count} 个账号（列表中符合条件共 {deduped.Count} 个）。");
+
+            var workflow = new StopPlatformOrderingWorkflow(_automationService, HelperPath, MerchantPath);
+            var steps = persisted.CaptureTargetList;
+            var ok = await workflow.RunAsync(take, steps, progress, _cts.Token, flowDisplayName: "停止平台单").ConfigureAwait(true);
+            PlatformOrderManagementStatusMessage = $"停止平台单已结束，成功处理 {ok} 个账号。";
+        }
+        catch (OperationCanceledException)
+        {
+            PlatformOrderManagementStatusMessage = "已停止停止平台单流程。";
+        }
+        catch (Exception ex)
+        {
+            PlatformOrderManagementStatusMessage = $"停止平台单异常：{ex.Message}";
+            PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex}");
+            PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private async Task StartEnablePlatformOrdering()
+    {
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            PlatformOrderManagementStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+
+        if (!int.TryParse(PlatformOrderAccountCountText.Trim(), out var accountCount) || accountCount < 1)
+        {
+            PlatformOrderManagementStatusMessage = "操作账号数量须为 ≥1 的整数。";
+            return;
+        }
+
+        PersistPlatformOrderAccountCountToBothFiles(accountCount);
+        var persisted = _startPlatformOrderingSettingsService.Load();
+
+        if (persisted.CaptureTargetList == null || persisted.CaptureTargetList.Count == 0)
+        {
+            PlatformOrderManagementStatusMessage = "请先在 Debug「启用平台单设置」中配置自动化步骤（startPlatformOrdering.json）。";
+            return;
+        }
+
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    PlatformOrderManagementStatusMessage = message;
+                    PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    PlatformOrderManagementStatusMessage = message;
+                    PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+                },
+                CancellationToken.None).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        PlatformOrderManagementStatusMessage = "启用平台单运行中…";
+        PlatformOrderManagementLogLines.Clear();
+        PlatformOrderManagementLogText = "";
+        IsRunning = true;
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        _cts = new CancellationTokenSource();
+        IProgress<string> progress = new Progress<string>(s =>
+        {
+            PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
+            PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+        });
+        try
+        {
+            var minScoreExclusive = KeepReserve235000
+                ? 235000 + HelperGridReader.MinWithdrawableScore
+                : HelperGridReader.MinWithdrawableScore;
+            progress.Report("正在启动/附着迅捷小辅助…");
+            var helperRoot = _automationService.LaunchOrAttach(HelperPath);
+            if (helperRoot == null)
+            {
+                PlatformOrderManagementStatusMessage = "无法附着迅捷辅助窗口。";
+                return;
+            }
+
+            await Task.Delay(400, _cts.Token).ConfigureAwait(true);
+            progress.Report("正在读取辅助账号列表…");
+            var raw = HelperGridReader.CollectCandidates(helperRoot, progress, minScoreExclusive);
+            var deduped = DeduplicateWithdrawCandidatesByUsername(raw);
+            var take = deduped.Take(accountCount).ToList();
+            progress.Report($"将处理前 {take.Count} 个账号（列表中符合条件共 {deduped.Count} 个）。");
+
+            var workflow = new StopPlatformOrderingWorkflow(_automationService, HelperPath, MerchantPath);
+            var steps = persisted.CaptureTargetList;
+            var ok = await workflow.RunAsync(take, steps, progress, _cts.Token, flowDisplayName: "启用平台单").ConfigureAwait(true);
+            PlatformOrderManagementStatusMessage = $"启用平台单已结束，成功处理 {ok} 个账号。";
+        }
+        catch (OperationCanceledException)
+        {
+            PlatformOrderManagementStatusMessage = "已停止启用平台单流程。";
+        }
+        catch (Exception ex)
+        {
+            PlatformOrderManagementStatusMessage = $"启用平台单异常：{ex.Message}";
+            PlatformOrderManagementLogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex}");
+            PlatformOrderManagementLogText = string.Join(Environment.NewLine, PlatformOrderManagementLogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private static List<WithdrawCandidateRow> DeduplicateWithdrawCandidatesByUsername(List<WithdrawCandidateRow> rows)
+    {
+        var map = new Dictionary<string, WithdrawCandidateRow>(StringComparer.Ordinal);
+        foreach (var r in rows)
+        {
+            if (!map.TryGetValue(r.Username, out var old) || r.Score > old.Score)
+                map[r.Username] = r;
+        }
+        return map.Values.ToList();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private async Task StartAutoAccept()
+    {
+        if (string.IsNullOrWhiteSpace(HelperPath) || string.IsNullOrWhiteSpace(MerchantPath))
+        {
+            AutoAcceptStatusMessage = "请先在「设置」中配置辅助路径与商家路径。";
+            return;
+        }
+
+        if (!await EnsureLatestVipEligibleAsync(
+                message =>
+                {
+                    AutoAcceptStatusMessage = message;
+                    AutoAcceptLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    AutoAcceptLogText = string.Join(Environment.NewLine, AutoAcceptLogLines);
+                }).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        if (!await EnsureAutomationPlatformAllowedAsync(
+                message =>
+                {
+                    AutoAcceptStatusMessage = message;
+                    AutoAcceptLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+                    AutoAcceptLogText = string.Join(Environment.NewLine, AutoAcceptLogLines);
+                },
+                CancellationToken.None).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var initial = _autoAcceptOrderSettingsService.Load();
+        if (initial.NavigationSteps.Count == 0 || initial.SignOrderSteps.Count == 0)
+        {
+            AutoAcceptStatusMessage = "请先在 Debug「自动接单设置」中配置导航步骤与签约步骤（autoAcceptOrder.json）。";
+            return;
+        }
+
+        AutoAcceptStatusMessage = "自动接单运行中…";
+        AutoAcceptLogLines.Clear();
+        AutoAcceptLogText = "";
+        IsRunning = true;
+        StartWithdrawCommand.NotifyCanExecuteChanged();
+        StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+        StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        _cts = new CancellationTokenSource();
+        var progress = new Progress<string>(s =>
+        {
+            AutoAcceptLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
+            AutoAcceptLogText = string.Join(Environment.NewLine, AutoAcceptLogLines);
+        });
+        try
+        {
+            await RunAutoAcceptLoopAsync(progress, _cts.Token).ConfigureAwait(true);
+            AutoAcceptStatusMessage = "自动接单循环已结束。";
+        }
+        catch (OperationCanceledException)
+        {
+            AutoAcceptStatusMessage = "已停止自动接单。";
+        }
+        catch (Exception ex)
+        {
+            AutoAcceptStatusMessage = $"自动接单异常：{ex.Message}";
+            AutoAcceptLogLines.Add($"[{DateTime.Now:HH:mm:ss}] 异常：{ex}");
+            AutoAcceptLogText = string.Join(Environment.NewLine, AutoAcceptLogLines);
+        }
+        finally
+        {
+            IsRunning = false;
+            StartWithdrawCommand.NotifyCanExecuteChanged();
+            StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
+            StartExchangeScoreCommand.NotifyCanExecuteChanged();
+            StartAutoAcceptCommand.NotifyCanExecuteChanged();
+            StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+            StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private async Task RunAutoAcceptLoopAsync(IProgress<string> progress, CancellationToken ct)
+    {
+        var workflow = new AutoAcceptOrderWorkflow(_automationService, HelperPath, MerchantPath);
+        while (!ct.IsCancellationRequested)
+        {
+            var settings = _autoAcceptOrderSettingsService.Load();
+            var minScore = KeepReserve235000
+                ? 235000 + HelperGridReader.MinWithdrawableScore
+                : HelperGridReader.MinWithdrawableScore;
+            var helperRoot = _automationService.LaunchOrAttach(HelperPath);
+            if (helperRoot == null)
+            {
+                progress.Report("无法启动或附着迅捷辅助，等待下一轮。");
+            }
+            else
+            {
+                var candidates = HelperGridReader.CollectCandidatesForAutoAccept(helperRoot, progress, minScore);
+                progress.Report($"本轮扫描到可接单候选账号数：{candidates.Count}。");
+                foreach (var c in candidates)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var refund = (decimal)TargetRefundRatePercent;
+                    var row = await workflow.ProcessCandidateAsync(c, settings, refund, progress, ct).ConfigureAwait(true);
+                    if (row != null)
+                    {
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            AcceptedOrderRows.Add(row);
+                            RefreshAutoAcceptSummary();
+                        });
+                    }
+                }
+            }
+
+            var delayMin = Math.Max(1, settings.PollIntervalMinutes);
+            progress.Report($"等待 {delayMin} 分钟后进行下一轮扫描…");
+            await Task.Delay(TimeSpan.FromMinutes(delayMin), ct).ConfigureAwait(true);
+        }
+    }
+
+    private void RefreshAutoAcceptSummary()
+    {
+        var n = AcceptedOrderRows.Count;
+        if (n == 0)
+        {
+            SummaryHighDiffSum = 0;
+            SummaryAvgDiffSum = 0;
+            SummaryHighDiffRatioAvgPercent = 0;
+            SummaryAvgDiffRatioAvgPercent = 0;
+            return;
+        }
+
+        SummaryHighDiffSum = AcceptedOrderRows.Sum(r => r.HighDiff);
+        SummaryAvgDiffSum = AcceptedOrderRows.Sum(r => r.AvgDiff);
+        SummaryHighDiffRatioAvgPercent = AcceptedOrderRows.Sum(r => r.HighDiffRatioPercent) / n;
+        SummaryAvgDiffRatioAvgPercent = AcceptedOrderRows.Sum(r => r.AvgDiffRatioPercent) / n;
+    }
+
+    partial void OnTargetRefundRatePercentChanged(double value)
+    {
+        try
+        {
+            var d = _autoAcceptOrderSettingsService.Load();
+            d.MaxRefundRatePercent = (decimal)value;
+            _autoAcceptOrderSettingsService.Save(d);
+        }
+        catch
+        {
+            // ignore persist errors
+        }
+    }
+
+    private void PersistPlatformOrderAccountCountToBothFiles(int n)
+    {
+        try
+        {
+            var stop = _stopPlatformOrderingSettingsService.Load();
+            stop.StopAccountCount = n;
+            _stopPlatformOrderingSettingsService.Save(stop);
+
+            var start = _startPlatformOrderingSettingsService.Load();
+            start.OperationAccountCount = n;
+            _startPlatformOrderingSettingsService.Save(start);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    partial void OnPlatformOrderAccountCountTextChanged(string value)
+    {
+        if (_suppressPlatformOrderAccountCountPersist)
+            return;
+        if (int.TryParse(value?.Trim(), out var n) && n >= 1)
+            PersistPlatformOrderAccountCountToBothFiles(n);
+    }
+
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop()
     {
@@ -869,6 +1401,9 @@ public sealed partial class MainViewModel : ObservableObject
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
         StartExchangeScoreCommand.NotifyCanExecuteChanged();
+        StartAutoAcceptCommand.NotifyCanExecuteChanged();
+        StartStopPlatformOrderingCommand.NotifyCanExecuteChanged();
+        StartEnablePlatformOrderingCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>非 <see cref="WithdrawCoinPreset"/> Auto 时返回固定讯币档位；否则 <c>null</c>（自动计算）。</summary>
@@ -923,6 +1458,8 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsExchangePage));
         OnPropertyChanged(nameof(IsCheckinPage));
         OnPropertyChanged(nameof(IsSettingsPage));
+        OnPropertyChanged(nameof(IsAutoAcceptOrderPage));
+        OnPropertyChanged(nameof(IsPlatformOrderManagementPage));
     }
 
     partial void OnCheckinModeChanged(string value)

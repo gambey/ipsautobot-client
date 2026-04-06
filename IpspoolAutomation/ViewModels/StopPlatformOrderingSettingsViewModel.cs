@@ -1,28 +1,31 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IpspoolAutomation.Models;
 using IpspoolAutomation.Models.Capture;
 using IpspoolAutomation.Services;
 
 namespace IpspoolAutomation.ViewModels;
 
-public sealed partial class DailyCheckSettingsViewModel : ObservableObject
+public sealed partial class StopPlatformOrderingSettingsViewModel : ObservableObject
 {
-    private readonly IDailyCheckExeService _settingsService;
+    private readonly IStopPlatformOrderingSettingsService _service;
     private Action? _closeAction;
 
+    [ObservableProperty] private string _stopAccountCountText = "60";
     [ObservableProperty] private string _statusMessage = "";
 
-    public ObservableCollection<DailyCheckTargetItemRowViewModel> CaptureTargets { get; } = new();
+    public ObservableCollection<CaptureTargetItemRowViewModel> CaptureTargets { get; } = new();
     public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "checkbox", "window", "dialog" };
     public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "select", "unselect", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
 
-    public DailyCheckSettingsViewModel(
-        IDailyCheckExeService settingsService,
-        IEnumerable<CaptureTargetItem>? initialItems = null)
+    public StopPlatformOrderingSettingsViewModel(IStopPlatformOrderingSettingsService service)
     {
-        _settingsService = settingsService;
-        var source = initialItems?.ToList() ?? settingsService.Load().CaptureTargetList;
+        _service = service;
+        var data = service.Load();
+        StopAccountCountText = Math.Max(1, data.StopAccountCount).ToString();
+        var source = data.CaptureTargetList;
         if (source.Count == 0)
         {
             AddTarget();
@@ -31,7 +34,7 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
 
         foreach (var item in source.OrderBy(x => x.TargetID))
         {
-            CaptureTargets.Add(new DailyCheckTargetItemRowViewModel
+            CaptureTargets.Add(new CaptureTargetItemRowViewModel
             {
                 TargetID = item.TargetID,
                 TargetType = NormalizeType(item.TargetType),
@@ -54,7 +57,7 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
     [RelayCommand]
     private void AddTarget()
     {
-        CaptureTargets.Add(new DailyCheckTargetItemRowViewModel
+        CaptureTargets.Add(new CaptureTargetItemRowViewModel
         {
             TargetID = CaptureTargets.Count + 1,
             TargetType = "text",
@@ -70,14 +73,14 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void InsertTargetBelow(DailyCheckTargetItemRowViewModel? afterRow)
+    private void InsertTargetBelow(CaptureTargetItemRowViewModel? afterRow)
     {
         if (afterRow == null)
             return;
         var index = CaptureTargets.IndexOf(afterRow);
         if (index < 0)
             return;
-        CaptureTargets.Insert(index + 1, new DailyCheckTargetItemRowViewModel
+        CaptureTargets.Insert(index + 1, new CaptureTargetItemRowViewModel
         {
             TargetType = "text",
             AnchorType = "",
@@ -92,7 +95,7 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void DeleteTarget(DailyCheckTargetItemRowViewModel? item)
+    private void DeleteTarget(CaptureTargetItemRowViewModel? item)
     {
         if (item == null)
             return;
@@ -105,6 +108,12 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
     {
         try
         {
+            if (!int.TryParse(StopAccountCountText.Trim(), out var stopCount) || stopCount < 1)
+            {
+                StatusMessage = "操作账号数量须为 ≥1 的整数。";
+                return;
+            }
+
             var list = new List<CaptureTargetItem>();
             foreach (var row in CaptureTargets)
             {
@@ -135,8 +144,12 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
                 });
             }
 
-            _settingsService.Save(new CaptureTargetSettings { CaptureTargetList = list });
-            StatusMessage = $"保存成功，共 {list.Count} 条目标。";
+            _service.Save(new StopPlatformOrderingSettingsData
+            {
+                StopAccountCount = stopCount,
+                CaptureTargetList = list
+            });
+            StatusMessage = $"保存成功，操作账号数量={stopCount}，共 {list.Count} 条自动化目标。";
             _closeAction?.Invoke();
         }
         catch (Exception ex)
@@ -151,7 +164,7 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
             CaptureTargets[i].TargetID = i + 1;
     }
 
-    private string NormalizeType(string? value)
+    private static string NormalizeType(string? value)
     {
         var v = value?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(v))
@@ -184,7 +197,7 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
         return "text";
     }
 
-    private string NormalizeAction(string? value)
+    private static string NormalizeAction(string? value)
     {
         if (string.Equals(value, "moveTo & click", StringComparison.Ordinal) ||
             string.Equals(value, "moveTo_click", StringComparison.Ordinal))
@@ -206,19 +219,4 @@ public sealed partial class DailyCheckSettingsViewModel : ObservableObject
             return "unselect";
         return "click";
     }
-}
-
-public sealed partial class DailyCheckTargetItemRowViewModel : ObservableObject
-{
-    [ObservableProperty] private int _targetID;
-    [ObservableProperty] private string _targetType = "text";
-    [ObservableProperty] private string _targetText = "";
-    [ObservableProperty] private string _anchorType = "";
-    [ObservableProperty] private string _anchorText = "";
-    [ObservableProperty] private string _offsetX = "0";
-    [ObservableProperty] private string _offsetY = "0";
-    [ObservableProperty] private string _action = "click";
-    [ObservableProperty] private string _inputValue = "";
-    [ObservableProperty] private string _delayMs = "300";
-    [ObservableProperty] private string _remark = "";
 }
