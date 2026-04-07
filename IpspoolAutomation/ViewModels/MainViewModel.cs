@@ -33,6 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IWithdrawRecordsService _withdrawRecordsService;
     private readonly IWithdrawDailyService _withdrawDailyService;
     private readonly IAutoAcceptOrderSettingsService _autoAcceptOrderSettingsService;
+    private readonly IAutoOrderingDataService _autoOrderingDataService;
     private readonly IStopPlatformOrderingSettingsService _stopPlatformOrderingSettingsService;
     private readonly IStartPlatformOrderingSettingsService _startPlatformOrderingSettingsService;
     private CancellationTokenSource? _cts;
@@ -156,6 +157,7 @@ public sealed partial class MainViewModel : ObservableObject
         IWithdrawRecordsService withdrawRecordsService,
         IWithdrawDailyService withdrawDailyService,
         IAutoAcceptOrderSettingsService autoAcceptOrderSettingsService,
+        IAutoOrderingDataService autoOrderingDataService,
         IStopPlatformOrderingSettingsService stopPlatformOrderingSettingsService,
         IStartPlatformOrderingSettingsService startPlatformOrderingSettingsService)
     {
@@ -171,6 +173,7 @@ public sealed partial class MainViewModel : ObservableObject
         _withdrawRecordsService = withdrawRecordsService;
         _withdrawDailyService = withdrawDailyService;
         _autoAcceptOrderSettingsService = autoAcceptOrderSettingsService;
+        _autoOrderingDataService = autoOrderingDataService;
         _stopPlatformOrderingSettingsService = stopPlatformOrderingSettingsService;
         _startPlatformOrderingSettingsService = startPlatformOrderingSettingsService;
         WindowTitle = string.IsNullOrWhiteSpace(_config.AppVersion)
@@ -190,6 +193,7 @@ public sealed partial class MainViewModel : ObservableObject
         LoadWithdrawDaily();
         var aaSettings = _autoAcceptOrderSettingsService.Load();
         TargetRefundRatePercent = (double)aaSettings.MaxRefundRatePercent;
+        LoadAutoOrderingPersistedRows();
         _suppressPlatformOrderAccountCountPersist = true;
         var platformOrderCount = Math.Max(1, _stopPlatformOrderingSettingsService.Load().StopAccountCount);
         PlatformOrderAccountCountText = platformOrderCount.ToString();
@@ -906,6 +910,56 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void OpenAutoAcceptLog()
+    {
+        var w = new AutoAcceptLogWindow
+        {
+            Owner = Application.Current.MainWindow,
+            DataContext = this
+        };
+        w.Show();
+    }
+
+    private void LoadAutoOrderingPersistedRows()
+    {
+        try
+        {
+            var data = _autoOrderingDataService.Load();
+            AcceptedOrderRows.Clear();
+            foreach (var r in data.Items)
+                AcceptedOrderRows.Add(AcceptedOrderRow.FromPersisted(r));
+            AssignAcceptedOrderRowIndices();
+            RefreshAutoAcceptSummary();
+        }
+        catch
+        {
+            // ignore corrupt file
+        }
+    }
+
+    private void AssignAcceptedOrderRowIndices()
+    {
+        for (var i = 0; i < AcceptedOrderRows.Count; i++)
+            AcceptedOrderRows[i].RowIndex = i + 1;
+    }
+
+    private void SaveAutoOrderingPersistedRows()
+    {
+        try
+        {
+            var data = new AutoOrderingDataFile
+            {
+                Items = AcceptedOrderRows.Select(x => x.ToPersisted()).ToList()
+            };
+            _autoOrderingDataService.Save(data);
+        }
+        catch
+        {
+            // ignore disk errors
+        }
+    }
+
+    [RelayCommand]
     private void OpenStopPlatformOrderingSettings()
     {
         var vm = new StopPlatformOrderingSettingsViewModel(_stopPlatformOrderingSettingsService);
@@ -1207,9 +1261,9 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         var initial = _autoAcceptOrderSettingsService.Load();
-        if (initial.NavigationSteps.Count == 0 || initial.SignOrderSteps.Count == 0)
+        if (initial.NavigationSteps.Count == 0)
         {
-            AutoAcceptStatusMessage = "请先在 Debug「自动接单设置」中配置导航步骤与签约步骤（autoAcceptOrder.json）。";
+            AutoAcceptStatusMessage = "请先在 Debug「自动接单设置」中配置导航步骤（autoAcceptOrder.json）。";
             return;
         }
 
@@ -1264,9 +1318,6 @@ public sealed partial class MainViewModel : ObservableObject
         while (!ct.IsCancellationRequested)
         {
             var settings = _autoAcceptOrderSettingsService.Load();
-            var minScore = KeepReserve235000
-                ? 235000 + HelperGridReader.MinWithdrawableScore
-                : HelperGridReader.MinWithdrawableScore;
             var helperRoot = _automationService.LaunchOrAttach(HelperPath);
             if (helperRoot == null)
             {
@@ -1274,7 +1325,7 @@ public sealed partial class MainViewModel : ObservableObject
             }
             else
             {
-                var candidates = HelperGridReader.CollectCandidatesForAutoAccept(helperRoot, progress, minScore);
+                var candidates = HelperGridReader.CollectCandidatesForAutoAccept(helperRoot, progress);
                 progress.Report($"本轮扫描到可接单候选账号数：{candidates.Count}。");
                 foreach (var c in candidates)
                 {
@@ -1285,8 +1336,13 @@ public sealed partial class MainViewModel : ObservableObject
                     {
                         await Application.Current.Dispatcher.InvokeAsync(() =>
                         {
-                            AcceptedOrderRows.Add(row);
+                            row.RecordedAt = DateTime.Now;
+                            AcceptedOrderRows.Insert(0, row);
+                            while (AcceptedOrderRows.Count > AutoOrderingDataService.MaxRecords)
+                                AcceptedOrderRows.RemoveAt(AcceptedOrderRows.Count - 1);
+                            AssignAcceptedOrderRowIndices();
                             RefreshAutoAcceptSummary();
+                            SaveAutoOrderingPersistedRows();
                         });
                     }
                 }

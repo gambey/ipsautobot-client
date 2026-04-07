@@ -77,7 +77,7 @@ internal static class MerchantOrderMarketReader
         return fallback;
     }
 
-    private static bool TryMapOrderMarketColumns(AutomationElement grid, out int orderIdCol, out int bidCol, out int durationCol, out int refundCol)
+    internal static bool TryMapOrderMarketColumns(AutomationElement grid, out int orderIdCol, out int bidCol, out int durationCol, out int refundCol)
     {
         orderIdCol = -1;
         bidCol = -1;
@@ -110,6 +110,74 @@ internal static class MerchantOrderMarketReader
         catch { /* ignore */ }
 
         return orderIdCol >= 0 && bidCol >= 0 && durationCol >= 0 && refundCol >= 0;
+    }
+
+    /// <summary>与采集时一致：当前页内第 <paramref name="oneBasedIndex"/> 个 <see cref="ControlType.DataItem"/>（从 1 起）。</summary>
+    internal static AutomationElement? GetDataItemByOneBasedIndex(AutomationElement merchantRoot, int oneBasedIndex)
+    {
+        var grid = HelperGridReader.FindMainGrid(merchantRoot);
+        if (grid == null || oneBasedIndex < 1)
+            return null;
+        AutomationElementCollection? dataItems = null;
+        try
+        {
+            dataItems = grid.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.DataItem));
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (dataItems == null || oneBasedIndex > dataItems.Count)
+            return null;
+        return dataItems[oneBasedIndex - 1];
+    }
+
+    internal static bool TryReadOrderIdForRow(AutomationElement grid, AutomationElement row, out string orderId)
+    {
+        orderId = "";
+        var idCol = 0;
+        if (!TryMapOrderMarketColumns(grid, out var mappedId, out _, out _, out _))
+            idCol = 0;
+        else
+            idCol = mappedId;
+
+        var cells = HelperGridReader.CollectRowCellTexts(row);
+        if (idCol < 0 || idCol >= cells.Count)
+            return false;
+        orderId = cells[idCol].Trim();
+        return !string.IsNullOrWhiteSpace(orderId);
+    }
+
+    internal static AutomationElement? FindDataItemByOrderId(AutomationElement merchantRoot, string expectedOrderId)
+    {
+        var grid = HelperGridReader.FindMainGrid(merchantRoot);
+        if (grid == null)
+            return null;
+        AutomationElementCollection? dataItems = null;
+        try
+        {
+            dataItems = grid.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.DataItem));
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (dataItems == null)
+            return null;
+        var want = (expectedOrderId ?? "").Trim();
+        if (want.Length == 0)
+            return null;
+        foreach (AutomationElement row in dataItems)
+        {
+            if (!TryReadOrderIdForRow(grid, row, out var id))
+                continue;
+            if (string.Equals(id.Trim(), want, StringComparison.Ordinal))
+                return row;
+        }
+
+        return null;
     }
 
     private static bool TryParseDecimalFlexible(string s, out decimal value)

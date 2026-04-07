@@ -15,11 +15,13 @@ public sealed partial class AutoAcceptOrderSettingsViewModel : ObservableObject
 
     [ObservableProperty] private string _pollIntervalMinutesText = "10";
     [ObservableProperty] private string _maxRefundRatePercentText = "100";
+    [ObservableProperty] private string _orderMarketSignMenuItemText = "签约该订单(订单市场)";
     [ObservableProperty] private string _statusMessage = "";
 
     public ObservableCollection<CaptureTargetItemRowViewModel> NavigationTargets { get; } = new();
     public ObservableCollection<CaptureTargetItemRowViewModel> SignTargets { get; } = new();
     public CaptureTargetItemRowViewModel NextPageRow { get; }
+    public CaptureTargetItemRowViewModel PreviousPageRow { get; }
 
     public IReadOnlyList<string> TargetTypeOptions { get; } = new[] { "text", "inputBox", "button", "radioBtn", "dropList", "checkbox", "window", "dialog" };
     public IReadOnlyList<string> ActionOptions { get; } = new[] { "click", "select", "unselect", "moveTo_click", "moveTo_click_input", "click_select", "solve_math" };
@@ -28,15 +30,23 @@ public sealed partial class AutoAcceptOrderSettingsViewModel : ObservableObject
     {
         _service = service;
         NextPageRow = new CaptureTargetItemRowViewModel { TargetID = 1 };
+        PreviousPageRow = new CaptureTargetItemRowViewModel { TargetID = 1 };
         var data = service.Load();
         PollIntervalMinutesText = Math.Max(1, data.PollIntervalMinutes).ToString();
         MaxRefundRatePercentText = data.MaxRefundRatePercent.ToString("0.##");
+        OrderMarketSignMenuItemText = string.IsNullOrWhiteSpace(data.OrderMarketSignMenuItemText)
+            ? "签约该订单(订单市场)"
+            : data.OrderMarketSignMenuItemText.Trim();
         LoadRows(NavigationTargets, data.NavigationSteps);
         LoadRows(SignTargets, data.SignOrderSteps);
         if (data.NextPageStep != null)
             ApplyItemToRow(data.NextPageStep, NextPageRow);
         else
             ClearRow(NextPageRow);
+        if (data.PreviousPageStep != null)
+            ApplyItemToRow(data.PreviousPageStep, PreviousPageRow);
+        else
+            ClearRow(PreviousPageRow);
     }
 
     public void SetCloseAction(Action action) => _closeAction = action;
@@ -187,9 +197,10 @@ public sealed partial class AutoAcceptOrderSettingsViewModel : ObservableObject
                 return;
             }
 
-            if (sign.Count == 0)
+            var menuText = (OrderMarketSignMenuItemText ?? "").Trim();
+            if (string.IsNullOrEmpty(menuText))
             {
-                StatusMessage = "请至少配置一条签约步骤。";
+                StatusMessage = "请填写右键签约菜单项完整名称。";
                 return;
             }
 
@@ -201,13 +212,23 @@ public sealed partial class AutoAcceptOrderSettingsViewModel : ObservableObject
                     next = one;
             }
 
+            CaptureTargetItem? prev = null;
+            if (!string.IsNullOrWhiteSpace(PreviousPageRow.TargetText) || !string.IsNullOrWhiteSpace(PreviousPageRow.AnchorText))
+            {
+                var p = RowToItem(PreviousPageRow);
+                if (p != null)
+                    prev = p;
+            }
+
             var data = new AutoAcceptOrderSettingsData
             {
                 PollIntervalMinutes = poll,
                 MaxRefundRatePercent = maxRefund,
                 NavigationSteps = nav,
                 SignOrderSteps = sign,
-                NextPageStep = next
+                NextPageStep = next,
+                PreviousPageStep = prev,
+                OrderMarketSignMenuItemText = menuText
             };
 
             _service.Save(data);

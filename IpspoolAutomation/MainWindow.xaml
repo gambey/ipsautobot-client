@@ -282,7 +282,6 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="{Binding AutoAcceptStatusMessage}" Margin="0,0,0,10" TextWrapping="Wrap"/>
@@ -294,7 +293,9 @@
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                     <Button Content="启动" Command="{Binding StartAutoAcceptCommand}" Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                   
+                                    <Button Content="日志" Command="{Binding OpenAutoAcceptLogCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="自动接单设置" Command="{Binding OpenAutoAcceptSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
+                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Margin="16,0,0,0">
                                     <TextBlock Text="最高可接受退款率（%）" FontWeight="SemiBold" Margin="0,0,0,4"/>
@@ -314,9 +315,10 @@
                                     </WrapPanel>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Row="3" BorderBrush="#FF707070" BorderThickness="1" Margin="0,0,0,10">
+                            <Border Grid.Row="3" BorderBrush="#FF707070" BorderThickness="1" Margin="0,0,0,0">
                                 <DataGrid ItemsSource="{Binding AcceptedOrderRows}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                                          GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36" MaxHeight="220">
+                                          GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36"
+                                          VerticalAlignment="Stretch" VerticalScrollBarVisibility="Auto">
                                     <DataGrid.Resources>
                                         <Style TargetType="DataGridColumnHeader">
                                             <Setter Property="Background" Value="#FF15A8E9"/>
@@ -327,6 +329,13 @@
                                         </Style>
                                     </DataGrid.Resources>
                                     <DataGrid.Columns>
+                                        <DataGridTextColumn Header="序号" Binding="{Binding RowIndex}" Width="56" IsReadOnly="True">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
                                         <DataGridTextColumn Header="账号" Binding="{Binding Username}" Width="1.2*"/>
                                         <DataGridTextColumn Header="订单号" Binding="{Binding OrderNumber}" Width="1.2*"/>
                                         <DataGridTextColumn Header="单价" Binding="{Binding UnitPrice, StringFormat=F4}" Width="*"/>
@@ -334,31 +343,10 @@
                                         <DataGridTextColumn Header="高差比%" Binding="{Binding HighDiffRatioPercent, StringFormat=F2}" Width="*"/>
                                         <DataGridTextColumn Header="均差" Binding="{Binding AvgDiff, StringFormat=F2}" Width="*"/>
                                         <DataGridTextColumn Header="均差比%" Binding="{Binding AvgDiffRatioPercent, StringFormat=F2}" Width="*"/>
+                                        <DataGridTextColumn Header="时间" Binding="{Binding TimeDisplay}" Width="1.4*"/>
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </Border>
-                            <Grid Grid.Row="4">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                                    <Button Content="自动接单设置" Command="{Binding OpenAutoAcceptSettingsCommand}" Padding="12,6"
-                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                </StackPanel>
-                                <TextBox Grid.Row="1"
-                                         Text="{Binding AutoAcceptLogText}"
-                                         IsReadOnly="True"
-                                         TextWrapping="Wrap"
-                                         VerticalScrollBarVisibility="Auto"
-                                         AcceptsReturn="True"
-                                         FontFamily="Consolas"
-                                         FontSize="12"
-                                         BorderBrush="#FFE5E7EB"
-                                         BorderThickness="1"
-                                         Padding="8"
-                                         MinHeight="180"/>
-                            </Grid>
                         </Grid>
 
                         <Grid Visibility="{Binding IsPlatformOrderManagementPage, Converter={StaticResource BoolToVisibilityConverter}}">

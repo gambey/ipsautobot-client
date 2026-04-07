@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Windows.Automation;
+using IpspoolAutomation.Automation;
 using IpspoolAutomation.Models.Capture;
 
 namespace IpspoolAutomation.Services;
@@ -792,6 +794,35 @@ public sealed class UIAutomationService : IAutomationService
         }
     }
 
+    public bool TryRestoreWindowNormal(AutomationElement windowElement)
+    {
+        if (windowElement == null)
+            return false;
+        try
+        {
+            if (windowElement.TryGetCurrentPattern(WindowPattern.Pattern, out var wpObj) && wpObj is WindowPattern wp)
+            {
+                wp.SetWindowVisualState(WindowVisualState.Normal);
+                Thread.Sleep(80);
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var hwnd = new IntPtr(windowElement.Current.NativeWindowHandle);
+            if (hwnd == IntPtr.Zero)
+                return false;
+            _ = NativeInput.ShowWindow(hwnd, NativeInput.SwRestore);
+            Thread.Sleep(120);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public bool IsElementVisibleInViewport(AutomationElement element)
     {
         if (element == null)
@@ -1509,6 +1540,283 @@ public sealed class UIAutomationService : IAutomationService
                 return null;
             }
         }
+        return null;
+    }
+
+    /// <inheritdoc />
+    public bool TryJumpOrderMarketToPage(AutomationElement merchantRoot, int pageOneBased)
+    {
+        if (pageOneBased < 1 || pageOneBased > 9)
+            return false;
+        var pageStr = pageOneBased.ToString(CultureInfo.InvariantCulture);
+
+        var anchor = FindDescendantNameContainsForJumpLabel(merchantRoot);
+        var input = anchor != null
+            ? FindPageJumpInputRightOfLabel(merchantRoot, anchor)
+            : null;
+        input ??= FindPageJumpComboBelowGridHeuristic(merchantRoot);
+
+        if (input == null)
+            return false;
+
+        var valueOk = false;
+        try
+        {
+            var ct = input.Current.ControlType;
+            if (ct == ControlType.ComboBox)
+                valueOk = TrySelectComboBoxByDisplayText(input, pageStr, merchantRoot);
+            else if (ct == ControlType.Edit)
+            {
+                SetEditValue(input, pageStr);
+                valueOk = true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (!valueOk)
+            return false;
+
+        Thread.Sleep(120);
+        var okBtn = FindConfirmButtonRightOfInput(merchantRoot, input);
+        if (okBtn == null)
+            return false;
+        try
+        {
+            InvokeButton(okBtn);
+        }
+        catch
+        {
+            return false;
+        }
+
+        Thread.Sleep(400);
+        return true;
+    }
+
+    private static AutomationElement? FindDescendantNameContainsForJumpLabel(AutomationElement root)
+    {
+        foreach (var ct in new[] { ControlType.Text, ControlType.Group, ControlType.Pane, ControlType.Custom })
+        {
+            AutomationElementCollection all;
+            try
+            {
+                all = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ct));
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (AutomationElement el in all)
+            {
+                try
+                {
+                    var n = el.Current.Name ?? "";
+                    if (n.Contains("跳转到页面", StringComparison.Ordinal) ||
+                        n.Contains("跳转到页", StringComparison.Ordinal))
+                        return el;
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        return null;
+    }
+
+    private static AutomationElement? FindPageJumpInputRightOfLabel(AutomationElement merchantRoot, AutomationElement anchor)
+    {
+        System.Windows.Rect la;
+        try
+        {
+            la = anchor.Current.BoundingRectangle;
+            if (la.Width <= 0 && la.Height <= 0)
+                return null;
+        }
+        catch
+        {
+            return null;
+        }
+
+        var laRight = la.Right;
+        var laMidY = la.Top + la.Height / 2;
+
+        AutomationElement? Pick(ControlType t)
+        {
+            AutomationElement? best = null;
+            var bestScore = double.MaxValue;
+            AutomationElementCollection all;
+            try
+            {
+                all = merchantRoot.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, t));
+            }
+            catch
+            {
+                return null;
+            }
+
+            foreach (AutomationElement c in all)
+            {
+                try
+                {
+                    var r = c.Current.BoundingRectangle;
+                    if (r.Width <= 0 || r.Height <= 0)
+                        continue;
+                    if (r.Left < laRight - 12)
+                        continue;
+                    var cy = r.Top + r.Height / 2;
+                    if (Math.Abs(cy - laMidY) > 88)
+                        continue;
+                    var score = r.Left + Math.Abs(cy - laMidY) * 0.6;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        best = c;
+                    }
+                }
+                catch { /* ignore */ }
+            }
+
+            return best;
+        }
+
+        return Pick(ControlType.ComboBox) ?? Pick(ControlType.Edit);
+    }
+
+    private AutomationElement? FindPageJumpComboBelowGridHeuristic(AutomationElement merchantRoot)
+    {
+        System.Windows.Rect win;
+        try
+        {
+            win = merchantRoot.Current.BoundingRectangle;
+        }
+        catch
+        {
+            return null;
+        }
+
+        double stripTop;
+        try
+        {
+            var grid = HelperGridReader.FindMainGrid(merchantRoot);
+            if (grid != null)
+            {
+                var gr = grid.Current.BoundingRectangle;
+                stripTop = gr.Bottom - 24;
+            }
+            else
+                stripTop = win.Top + win.Height * 0.55;
+        }
+        catch
+        {
+            stripTop = win.Top + win.Height * 0.55;
+        }
+
+        AutomationElement? best = null;
+        double bestTop = double.MinValue;
+        try
+        {
+            var all = merchantRoot.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ComboBox));
+            foreach (AutomationElement c in all)
+            {
+                try
+                {
+                    var r = c.Current.BoundingRectangle;
+                    if (r.Width <= 0 || r.Width > 260)
+                        continue;
+                    if (r.Top + r.Height < stripTop)
+                        continue;
+                    if (r.Top >= bestTop)
+                    {
+                        bestTop = r.Top;
+                        best = c;
+                    }
+                }
+                catch { /* ignore */ }
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return best;
+    }
+
+    private static AutomationElement? FindConfirmButtonRightOfInput(AutomationElement merchantRoot, AutomationElement input)
+    {
+        System.Windows.Rect ir;
+        try
+        {
+            ir = input.Current.BoundingRectangle;
+        }
+        catch
+        {
+            return null;
+        }
+
+        var irMidY = ir.Top + ir.Height / 2;
+        AutomationElement? best = null;
+        var bestScore = double.MaxValue;
+        try
+        {
+            var all = merchantRoot.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+            foreach (AutomationElement b in all)
+            {
+                try
+                {
+                    var n = (b.Current.Name ?? "").Trim();
+                    if (n != "确定")
+                        continue;
+                    var br = b.Current.BoundingRectangle;
+                    if (br.Width <= 0)
+                        continue;
+                    if (br.Left < ir.Right - 50)
+                        continue;
+                    var bc = br.Top + br.Height / 2;
+                    if (Math.Abs(bc - irMidY) > 72)
+                        continue;
+                    var score = br.Left - ir.Right + Math.Abs(bc - irMidY) * 0.35;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        best = b;
+                    }
+                }
+                catch { /* ignore */ }
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (best != null)
+            return best;
+
+        try
+        {
+            var win = merchantRoot.Current.BoundingRectangle;
+            var yMin = win.Top + win.Height * 0.58;
+            var all = merchantRoot.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+            foreach (AutomationElement b in all)
+            {
+                try
+                {
+                    if ((b.Current.Name ?? "").Trim() != "确定")
+                        continue;
+                    var br = b.Current.BoundingRectangle;
+                    if (br.Top + br.Height / 2 < yMin)
+                        continue;
+                    return b;
+                }
+                catch { /* ignore */ }
+            }
+        }
+        catch { /* ignore */ }
+
         return null;
     }
 }

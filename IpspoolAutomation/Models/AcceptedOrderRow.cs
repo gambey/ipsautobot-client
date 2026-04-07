@@ -1,3 +1,4 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace IpspoolAutomation.Models;
@@ -5,6 +6,8 @@ namespace IpspoolAutomation.Models;
 /// <summary>已接单记录（表格与汇总用）。</summary>
 public sealed class AcceptedOrderRow : ObservableObject
 {
+    private int _rowIndex;
+    private DateTime _recordedAt;
     private string _username = "";
     private string _orderNumber = "";
     private decimal _unitPrice;
@@ -12,6 +15,29 @@ public sealed class AcceptedOrderRow : ObservableObject
     private decimal _highDiffRatioPercent;
     private decimal _avgDiff;
     private decimal _avgDiffRatioPercent;
+
+    /// <summary>表格序号（1 起，时间降序时最新为 1）。</summary>
+    public int RowIndex
+    {
+        get => _rowIndex;
+        set => SetProperty(ref _rowIndex, value);
+    }
+
+    /// <summary>签约完成时间。</summary>
+    public DateTime RecordedAt
+    {
+        get => _recordedAt;
+        set
+        {
+            if (SetProperty(ref _recordedAt, value))
+                OnPropertyChanged(nameof(TimeDisplay));
+        }
+    }
+
+    public string TimeDisplay =>
+        _recordedAt == default
+            ? ""
+            : _recordedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
     public string Username
     {
@@ -55,4 +81,31 @@ public sealed class AcceptedOrderRow : ObservableObject
         get => _avgDiffRatioPercent;
         set => SetProperty(ref _avgDiffRatioPercent, value);
     }
+
+    public static AcceptedOrderRow FromPersisted(AutoOrderingPersistedRecord r)
+    {
+        return new AcceptedOrderRow
+        {
+            RecordedAt = r.RecordedAt,
+            Username = r.Username ?? "",
+            OrderNumber = r.OrderNumber ?? "",
+            UnitPrice = r.UnitPrice,
+            HighDiff = r.HighDiff,
+            HighDiffRatioPercent = r.HighDiffRatioPercent,
+            AvgDiff = r.AvgDiff,
+            AvgDiffRatioPercent = r.AvgDiffRatioPercent
+        };
+    }
+
+    public AutoOrderingPersistedRecord ToPersisted() => new()
+    {
+        RecordedAt = RecordedAt,
+        Username = Username,
+        OrderNumber = OrderNumber,
+        UnitPrice = UnitPrice,
+        HighDiff = HighDiff,
+        HighDiffRatioPercent = HighDiffRatioPercent,
+        AvgDiff = AvgDiff,
+        AvgDiffRatioPercent = AvgDiffRatioPercent
+    };
 }

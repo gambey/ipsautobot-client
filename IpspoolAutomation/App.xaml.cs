@@ -118,6 +118,7 @@ public partial class App : Application
         var withdrawRecordsService = new WithdrawRecordsService();
         var withdrawDailyService = new WithdrawDailyService();
         var autoAcceptOrderSettingsService = new AutoAcceptOrderSettingsService();
+        var autoOrderingDataService = new AutoOrderingDataService();
         var stopPlatformOrderingSettingsService = new StopPlatformOrderingSettingsService();
         var startPlatformOrderingSettingsService = new StartPlatformOrderingSettingsService();
         var vm = new MainViewModel(
@@ -133,6 +134,7 @@ public partial class App : Application
             withdrawRecordsService,
             withdrawDailyService,
             autoAcceptOrderSettingsService,
+            autoOrderingDataService,
             stopPlatformOrderingSettingsService,
             startPlatformOrderingSettingsService);
         vm.SetOnLogout(() =>

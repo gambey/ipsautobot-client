@@ -37,6 +37,8 @@ public interface IAutomationService
     void SetFocus(AutomationElement element);
     bool TryGetValue(AutomationElement element, out string value);
     bool MinimizeWindow(AutomationElement windowElement);
+    /// <summary>将窗口恢复为 Normal（UIA + Win32 ShowWindow 兜底），用于最小化主窗后仍要对顶层弹窗操作。</summary>
+    bool TryRestoreWindowNormal(AutomationElement windowElement);
     bool IsElementVisibleInViewport(AutomationElement element);
     bool TryEnsureDataItemVisible(AutomationElement dataItem, int maxSteps = 20);
     /// <summary>将表格行滚入「足够」可视区（避开横向滚动条压行），便于右键弹出「显示此号」。</summary>
@@ -59,4 +61,9 @@ public interface IAutomationService
     /// 在下拉框中选择显示文本与 <paramref name="displayText"/> 匹配的项（先 ValuePattern，再展开后选 ListItem）。
     /// </summary>
     bool TrySelectComboBoxByDisplayText(AutomationElement combo, string displayText, AutomationElement? searchWithin = null);
+
+    /// <summary>
+    /// 订单市场：在「跳转到页面」处选择 <paramref name="pageOneBased"/>（1–9）并点击同行的「确定」。
+    /// </summary>
+    bool TryJumpOrderMarketToPage(AutomationElement merchantRoot, int pageOneBased);
 }

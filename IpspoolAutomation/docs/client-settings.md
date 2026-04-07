@@ -63,16 +63,20 @@
 | 仅兑换不提现 | `WithdrawOnlySettingsService` | `withdraw_only.json` |
 | 仅兑换设置 | `ExchangeScoreSettingsService` | `exchange_score.json` |
 
+**自动接单签约记录**：`AutoOrderingDataService` 仅读写 `%LocalAppData%\IpspoolAutomation\autoOrderingData.json`（与 `ui-settings.json` 同目录），**不**参与上表的主路径/回退路径策略，也不使用 `ResolveExistingPath`。
+
 读取失败或文件不存在时，各服务通常返回**空默认模型**（如新 `CaptureTargetSettings()`），不阻断启动。
 
 ## 保存（Save）
 
-保存时**始终写入主配置目录** `client_settings\` 下对应文件名（不再写回 legacy 目录）：
+除特别说明外，保存时**始终写入主配置目录** `client_settings\` 下对应文件名（不再写回 legacy 目录）。
+
+其中自动接单签约记录 `autoOrderingData.json` 例外：读写均在 `%LocalAppData%\IpspoolAutomation\`（与 `ui-settings.json` 同目录），**不**使用 `client_settings` 路径。
 
 - 保存前若目录不存在会 `Directory.CreateDirectory`。
 - 序列化使用 `ClientSettingsJson.SerializeOptions`（如缩进输出，便于人工编辑）。
 
-因此：用户从旧目录迁移后，一旦在应用内保存，文件会统一到 `client_settings\`。
+因此：用户从旧目录迁移后，一旦在应用内保存，上表所列 JSON 会统一到 `client_settings\`（`autoOrderingData.json` 除外，始终在 `%LocalAppData%\IpspoolAutomation\`）。
 
 ## 与「仅下载 ZIP」的关系
 
@@ -89,5 +93,6 @@
 | 条件判断 + 解压 | `Services/AuthService.cs` → `EnsureClientSettingsFromServerIfMissingAsync` |
 | 启动后兜底调用 | `App.xaml.cs` → `MainWindow_OnFirstLoaded` |
 | `targetSettings.json` 读写 | `Services/CaptureTargetSettingsService.cs` |
+| `autoOrderingData.json` 读写 | `Services/AutoOrderingDataService.cs` |
 
 接口契约以 **`E:\workspace\ipspool\server\ips_autobot_svr\api.md`** 中 `GET /api/client-settings.zip` 章节为准；服务端实现见同仓库 `src/routes/downloads.js`。

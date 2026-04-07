@@ -7,6 +7,8 @@ namespace IpspoolAutomation.Services;
 internal static class NativeInput
 {
     internal const int SwMinimize = 6;
+    /// <summary>还原最小化/最大化窗口，便于后续点击子控件。</summary>
+    internal const int SwRestore = 9;
 
     internal const uint MouseeventfRightdown = 0x0008;
     internal const uint MouseeventfRightup = 0x0010;

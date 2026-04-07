@@ -13,11 +13,17 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="轮询间隔（分钟）" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBox Width="72" Text="{Binding PollIntervalMinutesText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
-            <TextBlock Text="最高可接受退款率（0–100）" VerticalAlignment="Center" Margin="24,0,8,0"/>
-            <TextBox Width="72" Text="{Binding MaxRefundRatePercentText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
+        <StackPanel Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="轮询间隔（分钟）" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBox Width="72" Text="{Binding PollIntervalMinutesText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
+                <TextBlock Text="最高可接受退款率（0–100）" VerticalAlignment="Center" Margin="24,0,8,0"/>
+                <TextBox Width="72" Text="{Binding MaxRefundRatePercentText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="右键签约菜单项（须与商家版菜单 UIA 名称一致）" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBox Width="420" Text="{Binding OrderMarketSignMenuItemText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
+            </StackPanel>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -152,7 +158,49 @@
                     </Grid>
                 </Border>
 
-                <TextBlock Text="签约步骤（占位符 {pageIndex}、{itemIndex}；页码为 1–9，行序为当前页内序号）" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <TextBlock Text="上一页步骤（优先「跳转到页面」+「确定」直达；失败时按次数回退；留空则点名称含「上一页」的按钮）" FontWeight="SemiBold" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <Border BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="36"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding PreviousPageRow.TargetID}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1"
+                                  SelectedItem="{Binding PreviousPageRow.TargetType, UpdateSourceTrigger=PropertyChanged}"
+                                  ItemsSource="{Binding TargetTypeOptions}"/>
+                        <TextBox Grid.Column="2" Text="{Binding PreviousPageRow.TargetText, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                        <ComboBox Grid.Column="3"
+                                  SelectedItem="{Binding PreviousPageRow.AnchorType, UpdateSourceTrigger=PropertyChanged}"
+                                  ItemsSource="{Binding TargetTypeOptions}"
+                                  Margin="4,0,0,0"/>
+                        <TextBox Grid.Column="4" Text="{Binding PreviousPageRow.AnchorText, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                        <TextBox Grid.Column="5" Text="{Binding PreviousPageRow.OffsetX, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                        <TextBox Grid.Column="6" Text="{Binding PreviousPageRow.OffsetY, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                        <ComboBox Grid.Column="7"
+                                  SelectedItem="{Binding PreviousPageRow.Action, UpdateSourceTrigger=PropertyChanged}"
+                                  ItemsSource="{Binding ActionOptions}"
+                                  Margin="4,0,0,0"/>
+                        <TextBox Grid.Column="8" Text="{Binding PreviousPageRow.InputValue, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                        <TextBox Grid.Column="9" Text="{Binding PreviousPageRow.DelayMs, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                        <TextBox Grid.Column="10" Text="{Binding PreviousPageRow.Remark, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel Margin="0,0,0,6">
+                    <TextBlock Text="可选：签约后附加步骤（占位符 {pageIndex}、{itemIndex}）" FontWeight="SemiBold"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="#FF4B5563" FontSize="12" Margin="0,4,0,0"
+                               Text="关闭「签约成功！」等弹窗：新增一步 — 目标类型选「对话框」，目标文字填窗口标题中的关键字（如 迅捷云商家版），锚点类型「按钮」、锚点文字「确定」，动作「click」。若找不到对话框，可把目标文字改成更短的子串（如 迅捷云）。"/>
+                </StackPanel>
                 <Button Content="新增签约步骤" Command="{Binding AddSignTargetCommand}" Padding="12,6" HorizontalAlignment="Left" Margin="0,0,0,8"/>
 
                 <Border BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8">

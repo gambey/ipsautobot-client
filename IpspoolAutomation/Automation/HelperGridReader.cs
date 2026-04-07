@@ -492,11 +492,10 @@ internal static class HelperGridReader
         return null;
     }
 
-    /// <summary>自动接单：可提收益仍须 &gt; <see cref="MinWithdrawableScore"/>，且「已接订单」列解析值 &lt; 2。</summary>
+    /// <summary>自动接单：仅筛选「已接订单」列解析值 &lt; 2 的账号；可提收益仅作附带读取（不参与过滤）。</summary>
     internal static List<AutoAcceptHelperCandidate> CollectCandidatesForAutoAccept(
         AutomationElement helperRoot,
-        IProgress<string>? progress,
-        int minScoreExclusive = MinWithdrawableScore)
+        IProgress<string>? progress)
     {
         var result = new List<AutoAcceptHelperCandidate>();
         var grid = FindMainGrid(helperRoot);
@@ -576,17 +575,16 @@ internal static class HelperGridReader
                 }
             }
 
-            if (!TryParseScore(scoreText, out var score))
-                continue;
-            if (score <= minScoreExclusive)
-                continue;
+            var score = 0;
+            _ = TryParseScore(scoreText, out score);
             if (string.IsNullOrWhiteSpace(user))
                 continue;
-
+           
             if (acceptedOrderCol >= 0 && acceptedOrderCol < cells.Count)
             {
                 var aoText = cells[acceptedOrderCol].Trim().Replace(",", "").Replace("，", "");
-                if (!int.TryParse(aoText, out var ao) || ao >= 2)
+                int LEAST_ORDER_COUNT = 2; //最小接单数量
+                if (!int.TryParse(aoText, out var ao) || ao >= LEAST_ORDER_COUNT)
                     continue;
             }
             else
