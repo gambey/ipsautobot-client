@@ -348,7 +348,7 @@ public sealed class AutoAcceptOrderWorkflow
         for (var attempt = 0; attempt < 3; attempt++)
         {
             await Task.Delay(attempt == 0 ? 400 : 450, ct).ConfigureAwait(false);
-            var dialog = _automation.FindDialogWindow(merchantRoot, "签约成功");
+            var dialog = _automation.FindDialogWindow(merchantRoot, "迅捷云商家版");
             if (dialog == null)
             {
                 if (attempt == 2)
