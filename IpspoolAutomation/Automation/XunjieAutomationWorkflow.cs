@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Windows.Automation;
 using IpspoolAutomation.Models;
 using IpspoolAutomation.Models.Capture;
@@ -16,7 +17,8 @@ public class XunjieAutomationWorkflow
     private readonly IAutomationService _automation;
     private readonly string _helperPath;
     private readonly string _merchantPath;
-    private const int MinDailyCheckScore = 105000;
+    /// <summary>签到：辅助列表「讯币」列达到该值（含）即可参与签到。</summary>
+    private const int MinDailyCheckCoinInclusive = 100;
 
     public XunjieAutomationWorkflow(IAutomationService automation, string helperPath, string merchantPath)
     {
@@ -88,6 +90,7 @@ public class XunjieAutomationWorkflow
         int minScoreExclusive,
         IReadOnlyList<CaptureTargetItem>? captureTargets = null,
         int? fixedWithdrawCoins = null,
+        int withdrawTargetSelectRowId = 0,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -109,10 +112,15 @@ public class XunjieAutomationWorkflow
         progress.Report("正在读取辅助软件账号列表...");
         var raw = HelperGridReader.CollectCandidates(helperRoot, progress, minScoreExclusive);
         var candidates = DeduplicateByUsername(raw);
-        progress.Report($"符合条件的账号数（可提收益>{minScoreExclusive}）：{candidates.Count}");
+        var eligibleCount = candidates.Count;
+        progress.Report($"符合条件的账号数（可提收益>{minScoreExclusive}）：{eligibleCount}");
+        candidates = ApplyWithdrawTargetSelectRowIdFilter(candidates, withdrawTargetSelectRowId, progress);
         if (candidates.Count == 0)
         {
-            progress.Report("没有需要处理的账号，结束。");
+            if (withdrawTargetSelectRowId > 0 && eligibleCount > 0)
+                progress.Report($"提现目标：未找到「选择」序号={withdrawTargetSelectRowId} 的账号（请对照日志 rowID，并确认该行满足可提收益条件）。");
+            else
+                progress.Report("没有需要处理的账号，结束。");
             return null;
         }
 
@@ -202,6 +210,7 @@ public class XunjieAutomationWorkflow
         int fixedWithdrawQuotaCoins,
         IReadOnlyList<CaptureTargetItem> steps,
         int? fixedWithdrawCoinsForExecution,
+        int withdrawTargetSelectRowId = 0,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -235,10 +244,15 @@ public class XunjieAutomationWorkflow
             fixedWithdrawQuotaCoins,
             ComputeWithdrawAmountCoins);
         var candidates = DeduplicateByUsername(raw);
-        progress.Report($"符合条件的账号数：{candidates.Count}");
+        var eligibleCount = candidates.Count;
+        progress.Report($"符合条件的账号数：{eligibleCount}");
+        candidates = ApplyWithdrawTargetSelectRowIdFilter(candidates, withdrawTargetSelectRowId, progress);
         if (candidates.Count == 0)
         {
-            progress.Report("没有需要处理的账号，结束。");
+            if (withdrawTargetSelectRowId > 0 && eligibleCount > 0)
+                progress.Report($"提现目标：未找到「选择」序号={withdrawTargetSelectRowId} 的账号（请对照日志 rowID，并确认该行满足可提收益/讯币条件）。");
+            else
+                progress.Report("没有需要处理的账号，结束。");
             return null;
         }
 
@@ -492,7 +506,7 @@ public class XunjieAutomationWorkflow
     }
 
     /// <summary>
-    /// 签到流程：筛选可提收益 &gt; 10500 的账号，逐个「显示此号」并按签到配置执行商家动作。
+    /// 签到流程：筛选「讯币」≥ <see cref="MinDailyCheckCoinInclusive"/> 的账号，逐个「显示此号」并按签到配置执行商家动作。
     /// </summary>
     public async Task<int> RunDailyCheckAsync(
         IProgress<string> progress,
@@ -515,9 +529,9 @@ public class XunjieAutomationWorkflow
         await Task.Delay(400, cancellationToken).ConfigureAwait(false);
 
         progress.Report("正在读取辅助软件账号列表...");
-        var raw = HelperGridReader.CollectCandidates(helperRoot, progress, MinDailyCheckScore);
+        var raw = HelperGridReader.CollectCandidatesForDailyCheck(helperRoot, progress, MinDailyCheckCoinInclusive);
         var candidates = DeduplicateByUsername(raw);
-        progress.Report($"符合签到条件的账号数（可提收益>{MinDailyCheckScore}）：{candidates.Count}");
+        progress.Report($"符合签到条件的账号数（讯币≥{MinDailyCheckCoinInclusive}）：{candidates.Count}");
         if (candidates.Count == 0)
             return 0;
 
@@ -1017,6 +1031,21 @@ fallbackNearest:
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// 当 <paramref name="withdrawTargetSelectRowId"/> &gt; 0 时，仅保留 <see cref="WithdrawCandidateRow.RowId"/>（辅助表「选择」列）与之相等的账号。
+    /// </summary>
+    private static List<WithdrawCandidateRow> ApplyWithdrawTargetSelectRowIdFilter(
+        List<WithdrawCandidateRow> candidates,
+        int withdrawTargetSelectRowId,
+        IProgress<string> progress)
+    {
+        if (withdrawTargetSelectRowId <= 0)
+            return candidates;
+        var filtered = candidates.Where(c => c.RowId == withdrawTargetSelectRowId).ToList();
+        progress.Report($"提现目标：仅处理「选择」序号={withdrawTargetSelectRowId}（命中 {filtered.Count} 个账号）。");
+        return filtered;
     }
 
     private static List<WithdrawCandidateRow> DeduplicateByUsername(List<WithdrawCandidateRow> rows)

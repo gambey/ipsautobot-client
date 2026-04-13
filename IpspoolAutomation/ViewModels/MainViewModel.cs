@@ -82,6 +82,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>兑换页「兑换额度」下拉，与提现额度独立。</summary>
     [ObservableProperty] private string _exchangeCoinPreset = "Auto";
+
+    /// <summary>提现目标：辅助表格「选择」列序号（与日志 rowID 一致）；0 或无效值表示不限制。</summary>
+    [ObservableProperty] private string _withdrawTargetSelectRowIdText = "0";
     [ObservableProperty] private bool _isAgentPayMode = true;
     [ObservableProperty] private bool _isRegionalAgentMode;
     [ObservableProperty] private bool _isFeeFromPoints = true;
@@ -438,6 +441,7 @@ public sealed partial class MainViewModel : ObservableObject
                 ? 235000 + HelperGridReader.MinWithdrawableScore
                 : HelperGridReader.MinWithdrawableScore;
             var fixedCoins = TryGetFixedWithdrawCoinsFromPreset(out _);
+            var withdrawTargetRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText);
             var runResult = await workflow.RunWithdrawAsync(
                 progress,
                 AlipayAccount,
@@ -446,6 +450,7 @@ public sealed partial class MainViewModel : ObservableObject
                 withdrawMinScoreExclusive,
                 CaptureTargetList.ToList(),
                 fixedCoins,
+                withdrawTargetRowId,
                 _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "自动提现流程已结束。";
             if (runResult != null)
@@ -541,6 +546,7 @@ public sealed partial class MainViewModel : ObservableObject
                 : HelperGridReader.MinWithdrawableScore;
             var useAuto = string.Equals(WithdrawCoinPreset, "Auto", StringComparison.OrdinalIgnoreCase);
             var fixedCoinsOpt = TryGetFixedWithdrawCoinsFromPreset(out _);
+            var withdrawTargetRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText);
             var runResult = await workflow.RunWithdrawOnlyAsync(
                 progress,
                 AlipayAccount,
@@ -551,6 +557,7 @@ public sealed partial class MainViewModel : ObservableObject
                 fixedCoinsOpt ?? 0,
                 wo.CaptureTargetList,
                 fixedCoinsOpt,
+                withdrawTargetRowId,
                 _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "仅提现不兑换流程已结束。";
             if (runResult != null)
@@ -773,7 +780,8 @@ public sealed partial class MainViewModel : ObservableObject
         PaymentMode = IsRegionalAgentMode ? "RegionalAgent" : "AgentPay",
         FeeMode = IsFeeFromPoints ? "FromPoints5Percent" : "None",
         WithdrawCoinPreset = WithdrawCoinPreset,
-        ExchangeCoinPreset = ExchangeCoinPreset
+        ExchangeCoinPreset = ExchangeCoinPreset,
+        WithdrawTargetSelectRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText)
     };
 
     private void WriteLocalUiSettingsFile()
@@ -1562,6 +1570,14 @@ public sealed partial class MainViewModel : ObservableObject
         CurrentPage = page;
     }
 
+    /// <summary>解析提现目标「选择」序号；≤0 或无法解析视为不限制。</summary>
+    private static int TryParseWithdrawTargetSelectRowId(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0;
+        return int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : 0;
+    }
+
     private static bool IsValidWithdrawCoinPreset(string? p)
     {
         if (string.IsNullOrWhiteSpace(p))
@@ -1585,6 +1601,13 @@ public sealed partial class MainViewModel : ObservableObject
         if (_suppressUiSettingsPersist)
             return;
         if (!IsValidWithdrawCoinPreset(value))
+            return;
+        PersistCoinPresetsToUiSettingsQuietly();
+    }
+
+    partial void OnWithdrawTargetSelectRowIdTextChanged(string value)
+    {
+        if (_suppressUiSettingsPersist)
             return;
         PersistCoinPresetsToUiSettingsQuietly();
     }
@@ -1988,4 +2011,7 @@ public sealed class LocalUiSettings
 
     /// <summary>兑换页额度，取值同 <see cref="WithdrawCoinPreset"/>。</summary>
     public string? ExchangeCoinPreset { get; set; }
+
+    /// <summary>提现目标：辅助表格「选择」列序号；0 表示不限制。</summary>
+    public int WithdrawTargetSelectRowId { get; set; }
 }

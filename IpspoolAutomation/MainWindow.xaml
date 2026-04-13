@@ -156,6 +156,11 @@
                                     <CheckBox Content="保留235000" IsChecked="{Binding KeepReserve235000}" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock Text="提现目标" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               ToolTip="辅助表格「选择」列序号，与运行日志中的 rowID 一致；填 0 表示不限制，处理全部可执行账号。"/>
+                                    <TextBox Width="56" MinHeight="22" VerticalAlignment="Center" VerticalContentAlignment="Center" Padding="6,4" Margin="0,0,16,0"
+                                             Text="{Binding WithdrawTargetSelectRowIdText, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="与日志 rowID 一致；0 不生效。"/>
                                     <TextBlock Text="提现额度" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <ComboBox Width="128"
                                               MinHeight="22"
@@ -308,8 +313,8 @@
                                 <StackPanel>
                                     <TextBlock FontWeight="SemiBold" Margin="0,0,0,6" Text="汇总"/>
                                     <WrapPanel>
-                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryHighDiffSum, StringFormat=高差和：{0:F2}}"/>
-                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryAvgDiffSum, StringFormat=均差和：{0:F2}}"/>
+                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryHighDiffSum, StringFormat=比最低高(高差和)：{0:F2}}"/>
+                                        <TextBlock Margin="0,0,16,4" Text="{Binding SummaryAvgDiffSum, StringFormat=比平均高（均差和）：{0:F2}}"/>
                                         <TextBlock Margin="0,0,16,4" Text="{Binding SummaryHighDiffRatioAvgPercent, StringFormat=高差和比(均值)：{0:F2}%}"/>
                                         <TextBlock Margin="0,0,16,4" Text="{Binding SummaryAvgDiffRatioAvgPercent, StringFormat=均差和比(均值)：{0:F2}%}"/>
                                     </WrapPanel>
@@ -426,7 +431,8 @@
 
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,20">
                                 <TextBlock Text="立刻签到:" VerticalAlignment="Center" Width="100"/>
-                                <Button Content="执行" Command="{Binding ExecuteCheckinCommand}" IsEnabled="{Binding IsExecuteEnabled}" Padding="28,6" Margin="0,0,36,0"/>
+                                <Button Content="执行" Command="{Binding ExecuteCheckinCommand}" IsEnabled="{Binding IsExecuteEnabled}" Padding="28,6" Margin="0,0,8,0"/>
+                                <Button Content="停止" Command="{Binding StopCommand}" Padding="28,6" Margin="0,0,36,0"/>
                                 <TextBlock Text="开始时间" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <ComboBox Width="120"
                                           ItemsSource="{Binding CheckinTimeOptions}"

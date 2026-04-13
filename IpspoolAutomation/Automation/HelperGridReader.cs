@@ -460,6 +460,96 @@ internal static class HelperGridReader
         return result;
     }
 
+    /// <summary>签到：筛选「讯币」列数值 ≥ <paramref name="minCoinInclusive"/> 的账号；可提收益仍写入 <see cref="WithdrawCandidateRow.Score"/>（若列缺失则为 0）。</summary>
+    internal static List<WithdrawCandidateRow> CollectCandidatesForDailyCheck(
+        AutomationElement helperRoot,
+        IProgress<string>? progress,
+        int minCoinInclusive = 100)
+    {
+        var result = new List<WithdrawCandidateRow>();
+        var grid = FindMainGrid(helperRoot);
+        if (grid == null)
+        {
+            progress?.Report("未在辅助窗口中找到表格/列表控件。");
+            return result;
+        }
+
+        _ = TryMapColumnIndices(grid, out var userCol, out var scoreCol, out var selectCol, out var coinCol, out _);
+        if (coinCol < 0)
+        {
+            progress?.Report($"无法进行签到筛选：未识别「讯币」列（要求讯币≥{minCoinInclusive}）。");
+            return result;
+        }
+
+        if (userCol < 0)
+        {
+            progress?.Report("警告：未能映射「用户名」，将按第 0 列作为用户名。");
+            userCol = 0;
+        }
+
+        if (selectCol < 0)
+            progress?.Report("提示：未映射到「选择」列，rowID 将保持为 0。");
+
+        AutomationElementCollection? dataItems = null;
+        try
+        {
+            dataItems = grid.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.DataItem));
+        }
+        catch
+        {
+            progress?.Report("读取表格行失败。");
+            return result;
+        }
+
+        if (dataItems == null || dataItems.Count == 0)
+        {
+            progress?.Report("表格中未找到数据行。");
+            return result;
+        }
+
+        for (var i = 0; i < dataItems.Count; i++)
+        {
+            AutomationElement row;
+            try
+            {
+                row = dataItems[i];
+            }
+            catch
+            {
+                continue;
+            }
+
+            var cells = CollectRowCellTexts(row);
+            if (cells.Count == 0)
+                continue;
+
+            string user;
+            if (userCol >= 0 && userCol < cells.Count)
+                user = cells[userCol].Trim();
+            else
+                user = cells[0].Trim();
+
+            if (string.IsNullOrWhiteSpace(user))
+                continue;
+
+            var coinText = coinCol >= 0 && coinCol < cells.Count ? cells[coinCol] : "";
+            if (!TryParseScore(coinText, out var coins) || coins < minCoinInclusive)
+                continue;
+
+            var score = 0;
+            if (scoreCol >= 0 && scoreCol < cells.Count)
+                _ = TryParseScore(cells[scoreCol], out score);
+
+            var rowId = 0;
+            if (selectCol >= 0 && selectCol < cells.Count && TryParseScore(cells[selectCol].Trim(), out var rid))
+                rowId = rid;
+
+            result.Add(new WithdrawCandidateRow(user, score, rowId));
+        }
+
+        return result;
+    }
+
     internal static AutomationElement? FindDataItemRowByUsername(AutomationElement helperRoot, string username)
     {
         var grid = FindMainGrid(helperRoot);
