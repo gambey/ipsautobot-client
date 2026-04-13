@@ -223,10 +223,7 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsWithdrawPage => CurrentPage == "提现";
     public bool IsExchangePage => CurrentPage == "兑换";
     public bool IsWithdrawRecordsPage => CurrentPage == "提现记录";
-    public bool IsCheckinPage => CurrentPage == "签到";
     public bool IsSettingsPage => CurrentPage == "设置";
-    public bool IsAutoAcceptOrderPage => CurrentPage == "自动接单";
-    public bool IsPlatformOrderManagementPage => CurrentPage == "平台单管理";
 
     public bool IsDebugBuild => IsDebugBuildComputed;
 
@@ -244,15 +241,6 @@ public sealed partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void GoWithdrawRecords() => SetCurrentPage("提现记录");
-
-    [RelayCommand]
-    private void GoCheckin() => SetCurrentPage("签到");
-
-    [RelayCommand]
-    private void GoAutoAcceptOrder() => SetCurrentPage("自动接单");
-
-    [RelayCommand]
-    private void GoPlatformOrderManagement() => SetCurrentPage("平台单管理");
 
     [RelayCommand]
     private void GoSettings() => SetCurrentPage("设置");
@@ -1526,10 +1514,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWithdrawPage));
         OnPropertyChanged(nameof(IsWithdrawRecordsPage));
         OnPropertyChanged(nameof(IsExchangePage));
-        OnPropertyChanged(nameof(IsCheckinPage));
         OnPropertyChanged(nameof(IsSettingsPage));
-        OnPropertyChanged(nameof(IsAutoAcceptOrderPage));
-        OnPropertyChanged(nameof(IsPlatformOrderManagementPage));
     }
 
     partial void OnCheckinModeChanged(string value)
