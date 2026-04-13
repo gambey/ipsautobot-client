@@ -24,6 +24,9 @@ public sealed class ApiClient : IApiClient
     private const string PathUserMacVerify = "api/users/mac/verify";
     private const string PathClientSettingsZip = "api/client-settings.zip";
 
+    /// <summary>api.md：MAC 与用户多应用字段按 <c>zhiling</c> / <c>yifei</c> 区分；本客户端为智灵自动化。</summary>
+    private const string ClientAppZhiling = "zhiling";
+
     public ApiClient(HttpClient http)
     {
         _http = http;
@@ -37,6 +40,13 @@ public sealed class ApiClient : IApiClient
     public void SetToken(string? token)
     {
         _token = token;
+    }
+
+    /// <summary>为需区分应用的 GET 请求附加 <c>?app=zhiling</c>（与 api.md 中 query 约定一致）。</summary>
+    private static string WithZhilingAppQuery(string relativePath)
+    {
+        var sep = relativePath.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{relativePath}{sep}app={Uri.EscapeDataString(ClientAppZhiling)}";
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, HttpContent? content = null)
@@ -108,13 +118,16 @@ public sealed class ApiClient : IApiClient
             if (data == null || string.IsNullOrEmpty(data.Token))
                 return new LoginResult(false, null, null, "Invalid response");
             var userName = data.User?.Username ?? data.User?.Phone ?? request.Account;
+            var zhiling = data.User?.Clients?.Zhiling;
+            var memberExpire = data.User?.MemberExpireAt ?? zhiling?.MemberExpireAt;
+            var memberType = data.User?.MemberType ?? zhiling?.MemberType;
             return new LoginResult(
                 true,
                 data.Token,
                 userName,
                 null,
-                data.User?.MemberExpireAt,
-                data.User?.MemberType);
+                memberExpire,
+                memberType);
         }
         catch (HttpRequestException ex)
         {
@@ -241,13 +254,14 @@ public sealed class ApiClient : IApiClient
             }
             var wrapper = await res.Content.ReadFromJsonAsync<CurrentUserProfileResponseWrapper>(_jsonOptions, cancellationToken).ConfigureAwait(false);
             var user = wrapper?.Data;
+            var zhiling = user?.Clients?.Zhiling;
             return new CurrentUserProfileResult(
                 true,
                 user?.Username,
                 user?.Phone,
-                user?.MacAddr,
-                user?.MemberExpireAt,
-                user?.MemberType,
+                user?.MacAddr ?? zhiling?.MacAddr,
+                user?.MemberExpireAt ?? zhiling?.MemberExpireAt,
+                user?.MemberType ?? zhiling?.MemberType,
                 null);
         }
         catch (HttpRequestException ex)
@@ -264,7 +278,7 @@ public sealed class ApiClient : IApiClient
     {
         try
         {
-            var req = CreateRequest(HttpMethod.Get, PathUserMac);
+            var req = CreateRequest(HttpMethod.Get, WithZhilingAppQuery(PathUserMac));
             var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
             if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                 return new UserMacQueryResult(false, null, "登录已失效，请重新登录");
@@ -291,7 +305,7 @@ public sealed class ApiClient : IApiClient
     {
         try
         {
-            var body = JsonSerializer.Serialize(new { mac_addr = macAddress }, _jsonOptions);
+            var body = JsonSerializer.Serialize(new { app = ClientAppZhiling, mac_addr = macAddress }, _jsonOptions);
             var req = CreateRequest(HttpMethod.Put, PathUserMac, new StringContent(body, Encoding.UTF8, "application/json"));
             var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
             if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
@@ -325,7 +339,7 @@ public sealed class ApiClient : IApiClient
     {
         try
         {
-            var body = JsonSerializer.Serialize(new { mac_addr = macAddress }, _jsonOptions);
+            var body = JsonSerializer.Serialize(new { app = ClientAppZhiling, mac_addr = macAddress }, _jsonOptions);
             var req = CreateRequest(HttpMethod.Post, PathUserMacVerify, new StringContent(body, Encoding.UTF8, "application/json"));
             var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
             if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)

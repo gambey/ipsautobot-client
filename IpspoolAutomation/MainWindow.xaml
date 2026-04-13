@@ -46,9 +46,9 @@
                     <Button Content="提现" Command="{Binding GoWithdrawCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现详情" Command="{Binding GoWithdrawDetailCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10" Click="Button_Click"/>
-                    <Button Content="签到" Command="{Binding GoCheckinCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <!--Button Content="签到" Command="{Binding GoCheckinCommand}" Margin="0,0,0,8" Padding="12,10"/>
                     <Button Content="自动接单" Command="{Binding GoAutoAcceptOrderCommand}" Margin="0,0,0,8" Padding="12,10"/>
-                    <Button Content="平台单管理" Command="{Binding GoPlatformOrderManagementCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <Button Content="平台单管理" Command="{Binding GoPlatformOrderManagementCommand}" Margin="0,0,0,8" Padding="12,10"/-->
                     <Button Content="设置" Command="{Binding GoSettingsCommand}" Margin="0,0,0,8" Padding="12,10"/>
                 </StackPanel>
             </Border>
@@ -538,10 +538,35 @@
                                     <RadioButton Content="1级或2级代理代付" IsChecked="{Binding IsAgentPayMode}" GroupName="PayMode" Margin="0,0,18,0" VerticalAlignment="Center"/>
                                     <RadioButton Content="区域总代理" IsChecked="{Binding IsRegionalAgentMode}" GroupName="PayMode" VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                     <TextBlock Text="手续费扣除:" Width="100" VerticalAlignment="Center"/>
                                     <RadioButton Content="从积分扣5%" IsChecked="{Binding IsFeeFromPoints}" GroupName="FeeMode" VerticalAlignment="Center"/>
                                 </StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="220"/>
+                                        <ColumnDefinition Width="40"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="支付密码:" Width="100" VerticalAlignment="Center"/>
+                                    <Grid Grid.Column="1">
+                                        <PasswordBox x:Name="PaymentPasswordBox"
+                                                     PasswordChanged="PaymentPasswordBox_OnPasswordChanged"
+                                                     Visibility="{Binding IsPaymentPasswordVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                                                     Padding="6,4"/>
+                                        <TextBox Text="{Binding PaymentPassword, UpdateSourceTrigger=PropertyChanged}"
+                                                 Visibility="{Binding IsPaymentPasswordVisible, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                 Padding="6,4"/>
+                                    </Grid>
+                                    <Button Grid.Column="2"
+                                            Content="👁"
+                                            ToolTip="显示/隐藏密码"
+                                            Click="TogglePaymentPasswordVisibility_Click"
+                                            Padding="6,4"
+                                            Margin="6,0,0,0"/>
+                                    <TextBlock Grid.Column="3" Text="(仅本地加密保存,请安心使用)" VerticalAlignment="Center" />
+                                </Grid>
                             </StackPanel>
 
                             <StackPanel Grid.Row="9" Orientation="Vertical">

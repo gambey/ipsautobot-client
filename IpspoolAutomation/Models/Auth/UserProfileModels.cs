@@ -31,6 +31,7 @@ internal sealed class CurrentUserProfileData
     [JsonPropertyName("phone")]
     public string? Phone { get; set; }
 
+    /// <summary>旧版顶层；新版见 <see cref="Clients"/>。</summary>
     [JsonPropertyName("mac_addr")]
     public string? MacAddr { get; set; }
 
@@ -39,4 +40,7 @@ internal sealed class CurrentUserProfileData
 
     [JsonPropertyName("member_type")]
     public int? MemberType { get; set; }
+
+    [JsonPropertyName("clients")]
+    public UserClientsJson? Clients { get; set; }
 }

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
@@ -88,6 +89,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isAgentPayMode = true;
     [ObservableProperty] private bool _isRegionalAgentMode;
     [ObservableProperty] private bool _isFeeFromPoints = true;
+    /// <summary>设置页支付密码（明文仅保留在内存）。</summary>
+    [ObservableProperty] private string _paymentPassword = "";
+    /// <summary>设置页支付密码是否显示明文。</summary>
+    [ObservableProperty] private bool _isPaymentPasswordVisible;
     [ObservableProperty] private string _settingsSaveStatus = "";
     [ObservableProperty] private string _withdrawRecordsTotalDisplay = "合计：0";
 
@@ -779,6 +784,7 @@ public sealed partial class MainViewModel : ObservableObject
         AlipayAccount = AlipayAccount,
         PaymentMode = IsRegionalAgentMode ? "RegionalAgent" : "AgentPay",
         FeeMode = IsFeeFromPoints ? "FromPoints5Percent" : "None",
+        PaymentPasswordEncrypted = EncryptForLocalStorage(PaymentPassword),
         WithdrawCoinPreset = WithdrawCoinPreset,
         ExchangeCoinPreset = ExchangeCoinPreset,
         WithdrawTargetSelectRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText)
@@ -795,7 +801,7 @@ public sealed partial class MainViewModel : ObservableObject
         File.WriteAllText(LocalSettingsPath, json);
     }
 
-    private void PersistCoinPresetsToUiSettingsQuietly()
+    private void PersistUiSettingsQuietly()
     {
         try
         {
@@ -803,7 +809,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            SettingsSaveStatus = $"保存额度偏好失败：{ex.Message}";
+            SettingsSaveStatus = $"保存本地设置失败：{ex.Message}";
         }
     }
 
@@ -1578,6 +1584,31 @@ public sealed partial class MainViewModel : ObservableObject
         return int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : 0;
     }
 
+    private static string? EncryptForLocalStorage(string? plain)
+    {
+        if (string.IsNullOrEmpty(plain))
+            return null;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(plain);
+        var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+        return Convert.ToBase64String(encrypted);
+    }
+
+    private static string DecryptFromLocalStorage(string? encryptedBase64)
+    {
+        if (string.IsNullOrWhiteSpace(encryptedBase64))
+            return "";
+        try
+        {
+            var encrypted = Convert.FromBase64String(encryptedBase64);
+            var plain = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+            return System.Text.Encoding.UTF8.GetString(plain);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     private static bool IsValidWithdrawCoinPreset(string? p)
     {
         if (string.IsNullOrWhiteSpace(p))
@@ -1593,7 +1624,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         if (!IsValidWithdrawCoinPreset(value))
             return;
-        PersistCoinPresetsToUiSettingsQuietly();
+        PersistUiSettingsQuietly();
     }
 
     partial void OnExchangeCoinPresetChanged(string value)
@@ -1602,14 +1633,21 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         if (!IsValidWithdrawCoinPreset(value))
             return;
-        PersistCoinPresetsToUiSettingsQuietly();
+        PersistUiSettingsQuietly();
     }
 
     partial void OnWithdrawTargetSelectRowIdTextChanged(string value)
     {
         if (_suppressUiSettingsPersist)
             return;
-        PersistCoinPresetsToUiSettingsQuietly();
+        PersistUiSettingsQuietly();
+    }
+
+    partial void OnPaymentPasswordChanged(string value)
+    {
+        if (_suppressUiSettingsPersist)
+            return;
+        PersistUiSettingsQuietly();
     }
 
     partial void OnIsAgentPayModeChanged(bool value)
@@ -1650,6 +1688,7 @@ public sealed partial class MainViewModel : ObservableObject
             IsRegionalAgentMode = string.Equals(data.PaymentMode, "RegionalAgent", StringComparison.OrdinalIgnoreCase);
             IsAgentPayMode = !IsRegionalAgentMode;
             IsFeeFromPoints = !string.Equals(data.FeeMode, "None", StringComparison.OrdinalIgnoreCase);
+            PaymentPassword = DecryptFromLocalStorage(data.PaymentPasswordEncrypted);
             if (IsValidWithdrawCoinPreset(data.WithdrawCoinPreset))
                 WithdrawCoinPreset = data.WithdrawCoinPreset!;
             if (IsValidWithdrawCoinPreset(data.ExchangeCoinPreset))
@@ -2006,6 +2045,8 @@ public sealed class LocalUiSettings
     public string? AlipayAccount { get; set; }
     public string? PaymentMode { get; set; }
     public string? FeeMode { get; set; }
+    /// <summary>支付密码（DPAPI 加密后的 Base64）。</summary>
+    public string? PaymentPasswordEncrypted { get; set; }
     /// <summary>Auto / 100 / 200 / 300 / 500 / 1000</summary>
     public string? WithdrawCoinPreset { get; set; }
 

@@ -37,9 +37,13 @@ public sealed class UserInfo
     [JsonPropertyName("phone")]
     public string? Phone { get; set; }
 
+    /// <summary>旧版顶层字段；新版可能在 <see cref="Clients"/> 的 zhiling 中。</summary>
     [JsonPropertyName("member_expire_at")]
     public string? MemberExpireAt { get; set; }
 
     [JsonPropertyName("member_type")]
     public int? MemberType { get; set; }
+
+    [JsonPropertyName("clients")]
+    public UserClientsJson? Clients { get; set; }
 }
