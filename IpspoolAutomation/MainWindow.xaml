@@ -177,6 +177,7 @@
                             </Grid>
                             <TextBox Grid.Row="2"
                                      Text="{Binding LogText}"
+                                     TextChanged="ReadOnlyLogTextBox_OnTextChanged"
                                      IsReadOnly="True"
                                      TextWrapping="Wrap"
                                      VerticalScrollBarVisibility="Auto"
@@ -227,6 +228,7 @@
                             </Grid>
                             <TextBox Grid.Row="2"
                                      Text="{Binding ExchangeLogText}"
+                                     TextChanged="ReadOnlyLogTextBox_OnTextChanged"
                                      IsReadOnly="True"
                                      TextWrapping="Wrap"
                                      VerticalScrollBarVisibility="Auto"

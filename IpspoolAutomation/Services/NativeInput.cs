@@ -14,12 +14,20 @@ internal static class NativeInput
     internal const uint MouseeventfRightup = 0x0010;
     internal const uint MouseeventfLeftdown = 0x0002;
     internal const uint MouseeventfLeftup = 0x0004;
+    internal const uint KeyeventfKeyup = 0x0002;
+    internal const byte VkControl = 0x11;
+    internal const byte VkA = 0x41;
+    internal const byte VkV = 0x56;
+    internal const byte VkBack = 0x08;
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool SetCursorPos(int x, int y);
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, nuint dwExtraInfo);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, nuint dwExtraInfo);
 
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
@@ -86,5 +94,30 @@ internal static class NativeInput
         Thread.Sleep(40);
         mouse_event(MouseeventfRightdown, 0, 0, 0, 0);
         mouse_event(MouseeventfRightup, 0, 0, 0, 0);
+    }
+
+    internal static void SendCtrlA()
+    {
+        keybd_event(VkControl, 0, 0, 0);
+        keybd_event(VkA, 0, 0, 0);
+        Thread.Sleep(15);
+        keybd_event(VkA, 0, KeyeventfKeyup, 0);
+        keybd_event(VkControl, 0, KeyeventfKeyup, 0);
+    }
+
+    internal static void SendCtrlV()
+    {
+        keybd_event(VkControl, 0, 0, 0);
+        keybd_event(VkV, 0, 0, 0);
+        Thread.Sleep(15);
+        keybd_event(VkV, 0, KeyeventfKeyup, 0);
+        keybd_event(VkControl, 0, KeyeventfKeyup, 0);
+    }
+
+    internal static void SendBackspace()
+    {
+        keybd_event(VkBack, 0, 0, 0);
+        Thread.Sleep(10);
+        keybd_event(VkBack, 0, KeyeventfKeyup, 0);
     }
 }

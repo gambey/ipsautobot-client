@@ -55,9 +55,9 @@ public static class AutomationMathExpression
                         sampled.Add(name.Trim());
                     if (!string.IsNullOrWhiteSpace(name))
                         tokenTexts.Add(name);
-                    if (TryEvaluateFromText(name, out result))
+                    if (TryEvaluateFromText(name, out result, out var expr))
                     {
-                        diagnostics = $"算式诊断：从Name命中，表达式结果={result}。";
+                        diagnostics = $"算式诊断：从Name命中，表达式={expr}，结果={result}。";
                         return true;
                     }
                 }
@@ -83,9 +83,9 @@ public static class AutomationMathExpression
                             continue;
                         }
 
-                        if (!string.IsNullOrWhiteSpace(doc) && TryEvaluateFromText(doc, out result))
+                        if (!string.IsNullOrWhiteSpace(doc) && TryEvaluateFromText(doc, out result, out var expr))
                         {
-                            diagnostics = $"算式诊断：从TextPattern命中，表达式结果={result}。";
+                            diagnostics = $"算式诊断：从TextPattern命中，表达式={expr}，结果={result}。";
                             return true;
                         }
                         if (!string.IsNullOrWhiteSpace(doc))
@@ -121,12 +121,18 @@ public static class AutomationMathExpression
         return false;
     }
 
-    private static bool TryEvaluateFromText(string raw, out int result)
+    private static bool TryEvaluateFromText(string raw, out int result, out string expression)
     {
         result = 0;
+        expression = "";
         if (string.IsNullOrWhiteSpace(raw))
             return false;
         var normalized = NormalizeMathSymbols(raw);
+        var hasCandidate = false;
+        var bestScore = long.MaxValue;
+        var bestA = 0;
+        var bestB = 0;
+        var bestOp = '\0';
         foreach (Match m in ArithmeticRegex.Matches(normalized))
         {
             if (!m.Success)
@@ -138,18 +144,31 @@ public static class AutomationMathExpression
             var op = m.Groups[2].Value;
             if (op.Length != 1)
                 continue;
-            result = op[0] switch
-            {
-                '+' => a + b,
-                '-' => a - b,
-                '*' => a * b,
-                '/' => b != 0 ? a / b : 0,
-                _ => 0
-            };
-            return true;
+            // 同一段文本中可能存在多个表达式（例如主体页面统计值、历史输入值）。
+            // 反作弊算式通常操作数较小，因此优先选择 |a|/|b| 更小的候选，避免误命中大数字表达式。
+            var score = BuildMathCandidateScore(a, b);
+            if (score >= bestScore)
+                continue;
+            hasCandidate = true;
+            bestScore = score;
+            bestA = a;
+            bestB = b;
+            bestOp = op[0];
         }
 
-        return false;
+        if (!hasCandidate)
+            return false;
+
+        result = bestOp switch
+        {
+            '+' => bestA + bestB,
+            '-' => bestA - bestB,
+            '*' => bestA * bestB,
+            '/' => bestB != 0 ? bestA / bestB : 0,
+            _ => 0
+        };
+        expression = $"{bestA}{bestOp}{bestB}";
+        return true;
     }
 
     private static bool TryEvaluateFromTokenTexts(IReadOnlyList<string> texts, out int result, out string expression)
@@ -177,6 +196,11 @@ public static class AutomationMathExpression
             return false;
 
         // 扫描 token 序列，允许界面把算式拆成多个控件：6 | + | 28 | =
+        var hasCandidate = false;
+        var bestScore = long.MaxValue;
+        var bestA = 0;
+        var bestB = 0;
+        var bestOp = '\0';
         for (var i = 0; i <= tokens.Count - 3; i++)
         {
             if (!int.TryParse(tokens[i], out var a))
@@ -186,20 +210,42 @@ public static class AutomationMathExpression
                 continue;
             if (!int.TryParse(tokens[i + 2], out var b))
                 continue;
-
-            result = op[0] switch
-            {
-                '+' => a + b,
-                '-' => a - b,
-                '*' => a * b,
-                '/' => b != 0 ? a / b : 0,
-                _ => 0
-            };
-            expression = $"{a}{op}{b}";
-            return true;
+            var score = BuildMathCandidateScore(a, b);
+            if (score >= bestScore)
+                continue;
+            hasCandidate = true;
+            bestScore = score;
+            bestA = a;
+            bestB = b;
+            bestOp = op[0];
         }
 
-        return false;
+        if (!hasCandidate)
+            return false;
+
+        result = bestOp switch
+        {
+            '+' => bestA + bestB,
+            '-' => bestA - bestB,
+            '*' => bestA * bestB,
+            '/' => bestB != 0 ? bestA / bestB : 0,
+            _ => 0
+        };
+        expression = $"{bestA}{bestOp}{bestB}";
+        return true;
+    }
+
+    private static long BuildMathCandidateScore(int a, int b)
+    {
+        // 分数越小优先级越高：
+        // 1) 优先两位以内（<=99）的小操作数；
+        // 2) 次优三位以内（<=999）；
+        // 3) 再按绝对值总量比较，避免命中 235000-127000 这类业务数字。
+        var absA = Math.Abs((long)a);
+        var absB = Math.Abs((long)b);
+        var max = Math.Max(absA, absB);
+        var tier = max <= 99 ? 0L : max <= 999 ? 1_000_000_000L : 2_000_000_000L;
+        return tier + absA + absB;
     }
 
     private static string NormalizeMathSymbols(string s)

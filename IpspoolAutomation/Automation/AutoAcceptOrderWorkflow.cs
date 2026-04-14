@@ -28,7 +28,8 @@ public sealed class AutoAcceptOrderWorkflow
         AutoAcceptOrderSettingsData settings,
         decimal targetRefundRatePercent,
         IProgress<string> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? paymentPassword = null)
     {
         if (settings.NavigationSteps.Count == 0)
         {
@@ -60,7 +61,7 @@ public sealed class AutoAcceptOrderWorkflow
 
         EnsureWindowNormal(merchantRoot);
 
-        var navOk = await _wf.ExecuteCaptureStepsAsync(merchantRoot, settings.NavigationSteps, progress, ct).ConfigureAwait(false);
+        var navOk = await _wf.ExecuteCaptureStepsAsync(merchantRoot, settings.NavigationSteps, progress, ct, paymentPassword).ConfigureAwait(false);
         if (!navOk)
         {
             progress.Report("自动接单：导航步骤执行失败。");
@@ -79,7 +80,7 @@ public sealed class AutoAcceptOrderWorkflow
             allOrderData.AddRange(pageRows);
 
             if (pageIndex < 8)
-                await ClickNextPageAsync(merchantRoot, settings.NextPageStep, progress, ct).ConfigureAwait(false);
+                await ClickNextPageAsync(merchantRoot, settings.NextPageStep, progress, ct, paymentPassword).ConfigureAwait(false);
         }
 
         if (allOrderData.Count == 0)
@@ -92,7 +93,7 @@ public sealed class AutoAcceptOrderWorkflow
         var best = allOrderData.OrderByDescending(e => e.UnitPrice).First();
         progress.Report($"已选单价最高订单：{best.OrderId}，单价={best.UnitPrice:F4}，页={best.PageIndex + 1}，行序={best.ItemIndex}。");
 
-        if (!await GoToBestOrderPageAsync(merchantRoot, best.PageIndex, settings.PreviousPageStep, progress, ct).ConfigureAwait(false))
+        if (!await GoToBestOrderPageAsync(merchantRoot, best.PageIndex, settings.PreviousPageStep, progress, ct, paymentPassword).ConfigureAwait(false))
         {
             progress.Report("跳转到目标订单页失败，结束本次签约。");
             _automation.MinimizeWindow(merchantRoot);
@@ -110,7 +111,7 @@ public sealed class AutoAcceptOrderWorkflow
             progress.Report("等待签约结果弹窗…");
             await Task.Delay(600, ct).ConfigureAwait(false);
             var postSteps = CloneStepsWithPlaceholders(settings.SignOrderSteps, best.PageIndex, best.ItemIndex);
-            var postOk = await _wf.ExecuteCaptureStepsAsync(merchantRoot, postSteps, progress, ct).ConfigureAwait(false);
+            var postOk = await _wf.ExecuteCaptureStepsAsync(merchantRoot, postSteps, progress, ct, paymentPassword).ConfigureAwait(false);
             if (!postOk)
                 progress.Report("签约后附加步骤执行失败（可检查 SignOrderSteps）。");
         }
@@ -131,11 +132,12 @@ public sealed class AutoAcceptOrderWorkflow
         AutomationElement merchantRoot,
         CaptureTargetItem? nextPageStep,
         IProgress<string> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? paymentPassword)
     {
         if (nextPageStep != null)
         {
-            var ok = await _wf.ExecuteCaptureStepsAsync(merchantRoot, new List<CaptureTargetItem> { nextPageStep }, progress, ct).ConfigureAwait(false);
+            var ok = await _wf.ExecuteCaptureStepsAsync(merchantRoot, new List<CaptureTargetItem> { nextPageStep }, progress, ct, paymentPassword).ConfigureAwait(false);
             if (!ok)
                 progress.Report("翻页步骤可能未成功，仍将尝试继续。");
             await Task.Delay(400, ct).ConfigureAwait(false);
@@ -163,7 +165,8 @@ public sealed class AutoAcceptOrderWorkflow
         int bestPageIndexZeroBased,
         CaptureTargetItem? previousPageStep,
         IProgress<string> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? paymentPassword)
     {
         const int lastPageIndexZeroBased = 8;
         if (bestPageIndexZeroBased < 0 || bestPageIndexZeroBased > lastPageIndexZeroBased)
@@ -186,7 +189,7 @@ public sealed class AutoAcceptOrderWorkflow
         for (var i = 0; i < needBack; i++)
         {
             ct.ThrowIfCancellationRequested();
-            await ClickPreviousPageAsync(merchantRoot, previousPageStep, progress, ct).ConfigureAwait(false);
+            await ClickPreviousPageAsync(merchantRoot, previousPageStep, progress, ct, paymentPassword).ConfigureAwait(false);
         }
 
         return true;
@@ -196,11 +199,12 @@ public sealed class AutoAcceptOrderWorkflow
         AutomationElement merchantRoot,
         CaptureTargetItem? previousPageStep,
         IProgress<string> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? paymentPassword)
     {
         if (previousPageStep != null)
         {
-            var ok = await _wf.ExecuteCaptureStepsAsync(merchantRoot, new List<CaptureTargetItem> { previousPageStep }, progress, ct).ConfigureAwait(false);
+            var ok = await _wf.ExecuteCaptureStepsAsync(merchantRoot, new List<CaptureTargetItem> { previousPageStep }, progress, ct, paymentPassword).ConfigureAwait(false);
             if (!ok)
                 progress.Report("上一页步骤可能未成功，仍将尝试继续。");
             await Task.Delay(400, ct).ConfigureAwait(false);

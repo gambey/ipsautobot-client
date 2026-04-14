@@ -529,6 +529,19 @@ public sealed class UIAutomationService : IAutomationService
         }
         catch { /* ignore */ }
 
+        // 反作弊算式一般是较小弹层；主窗口往往尺寸很大。这里给小弹层加分、给大容器降分，降低误命中整窗概率。
+        try
+        {
+            var r = root.Current.BoundingRectangle;
+            var w = r.Width;
+            var h = r.Height;
+            if (w is >= 260 and <= 560 && h is >= 120 and <= 320)
+                score += 5;
+            else if (w > 760 || h > 520)
+                score -= 6;
+        }
+        catch { /* ignore */ }
+
         return score;
     }
 
@@ -724,6 +737,58 @@ public sealed class UIAutomationService : IAutomationService
         if (element.TryGetCurrentPattern(TextPattern.Pattern, out var tpObj) && tpObj is TextPattern textPattern)
         {
             /* read-only text */
+        }
+
+        // Fallback for password/edit controls that don't expose ValuePattern.
+        if (TryPasteTextByClipboard(value))
+            return;
+    }
+
+    private static bool TryPasteTextByClipboard(string value)
+    {
+        try
+        {
+            var backupExists = false;
+            var backupText = "";
+            try
+            {
+                if (System.Windows.Clipboard.ContainsText())
+                {
+                    backupText = System.Windows.Clipboard.GetText();
+                    backupExists = true;
+                }
+            }
+            catch
+            {
+                // ignore clipboard read failures
+            }
+
+            System.Windows.Clipboard.SetText(value ?? "");
+            Thread.Sleep(20);
+            NativeInput.SendCtrlA();
+            Thread.Sleep(20);
+            NativeInput.SendBackspace();
+            Thread.Sleep(20);
+            NativeInput.SendCtrlV();
+            Thread.Sleep(20);
+
+            try
+            {
+                if (backupExists)
+                    System.Windows.Clipboard.SetText(backupText);
+                else
+                    System.Windows.Clipboard.Clear();
+            }
+            catch
+            {
+                // ignore clipboard restore failures
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 

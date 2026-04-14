@@ -17,6 +17,10 @@ public class XunjieAutomationWorkflow
     private readonly IAutomationService _automation;
     private readonly string _helperPath;
     private readonly string _merchantPath;
+    private readonly record struct ResolvedStepTarget(
+        AutomationElement? Target,
+        AutomationElement? Anchor,
+        AutomationElement? ScopeRoot);
     /// <summary>签到：辅助列表「讯币」列达到该值（含）即可参与签到。</summary>
     private const int MinDailyCheckCoinInclusive = 100;
 
@@ -91,6 +95,7 @@ public class XunjieAutomationWorkflow
         IReadOnlyList<CaptureTargetItem>? captureTargets = null,
         int? fixedWithdrawCoins = null,
         int withdrawTargetSelectRowId = 0,
+        string? paymentPassword = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -163,7 +168,7 @@ public class XunjieAutomationWorkflow
             if (captureTargets != null && captureTargets.Count > 0)
             {
                 configuredDone = await ExecuteConfiguredMerchantActionsAsync(
-                    merchantRoot, captureTargets, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken).ConfigureAwait(false);
+                    merchantRoot, captureTargets, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken, paymentPassword).ConfigureAwait(false);
             }
             if (!configuredDone)
             {
@@ -211,6 +216,7 @@ public class XunjieAutomationWorkflow
         IReadOnlyList<CaptureTargetItem> steps,
         int? fixedWithdrawCoinsForExecution,
         int withdrawTargetSelectRowId = 0,
+        string? paymentPassword = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -290,7 +296,7 @@ public class XunjieAutomationWorkflow
             EnsureWindowNormal(merchantRoot);
 
             var ok = await ExecuteConfiguredMerchantActionsAsync(
-                merchantRoot, steps, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken).ConfigureAwait(false);
+                merchantRoot, steps, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken, paymentPassword).ConfigureAwait(false);
             if (!ok)
             {
                 progress.Report($"仅提现不兑换脚本未完成，跳过（rowID={c.RowId}，用户名={c.Username}）。");
@@ -329,6 +335,7 @@ public class XunjieAutomationWorkflow
         bool useAutoExchangeCoins = true,
         int? fixedExchangeCoins = null,
         bool keepReserve235000ForQuota = false,
+        string? paymentPassword = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -421,7 +428,7 @@ public class XunjieAutomationWorkflow
             EnsureWindowNormal(merchantRoot);
 
             var ok = await ExecuteConfiguredMerchantActionsAsync(
-                merchantRoot, steps, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken).ConfigureAwait(false);
+                merchantRoot, steps, coins, recipientPhone, withdrawName, alipayAccount, progress, cancellationToken, paymentPassword).ConfigureAwait(false);
             if (!ok)
             {
                 progress.Report($"仅兑换脚本未完成，跳过（rowID={c.RowId}，用户名={c.Username}）。");
@@ -472,27 +479,80 @@ public class XunjieAutomationWorkflow
         string withdrawName,
         string alipayAccount,
         IProgress<string> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? paymentPassword = null)
     {
         var steps = captureTargets.OrderBy(x => x.TargetID).ToList();
         if (steps.Count == 0)
             return false;
+        var resolveCache = new Dictionary<string, ResolvedStepTarget>(StringComparer.Ordinal);
+        AutomationElement? cachedDialogScope = null;
 
         AutomationDevLog.Report(progress, $"检测到捕捉设置，共 {steps.Count} 步，按配置执行商家操作。");
         foreach (var step in steps)
         {
             ct.ThrowIfCancellationRequested();
-            if (!TryResolveStepTarget(merchantRoot, step, out var target, out var anchor, out var scopeRoot, out var resolveDebug))
+            var remarkSuffix = string.IsNullOrWhiteSpace(step.Remark) ? "" : $"，{step.Remark!.Trim()}";
+            var stepLabel = $"配置步骤#{step.TargetID}{remarkSuffix}";
+            if (ShouldSkipAntiCheatStep(step, merchantRoot, out var antiCheatDiag))
             {
-                if (!string.IsNullOrWhiteSpace(resolveDebug))
-                    AutomationDevLog.Report(progress, resolveDebug);
-                progress.Report($"配置步骤#{step.TargetID} 未找到目标控件（targetType={step.TargetType}, targetText={step.TargetText}）。");
-                return false;
+                AutomationDevLog.Report(progress, $"{stepLabel} 命中跳过规则：步骤9/10检测到“反作弊”弹层，已跳过。{antiCheatDiag}");
+                continue;
+            }
+            AutomationDevLog.Report(progress, $"开始执行{stepLabel}（action={step.Action}）。");
+            var cacheKey = BuildResolveCacheKey(step);
+            AutomationElement? target;
+            AutomationElement? anchor;
+            AutomationElement? scopeRoot;
+            string? resolveDebug;
+            if (resolveCache.TryGetValue(cacheKey, out var cached) && IsResolvedStepTargetValid(cached))
+            {
+                target = cached.Target;
+                anchor = cached.Anchor;
+                scopeRoot = cached.ScopeRoot;
+                resolveDebug = "定位缓存命中：复用前一步已定位控件。";
+            }
+            else
+            {
+                if (!TryResolveStepTarget(merchantRoot, step, out target, out anchor, out scopeRoot, out resolveDebug, cachedDialogScope))
+                {
+                    if (!string.IsNullOrWhiteSpace(resolveDebug))
+                        AutomationDevLog.Report(progress, resolveDebug);
+                    progress.Report($"{stepLabel} 未找到目标控件（targetType={step.TargetType}, targetText={step.TargetText}）。");
+                    return false;
+                }
+                resolveCache[cacheKey] = new ResolvedStepTarget(target, anchor, scopeRoot);
             }
 
-            if (!ExecuteStepAction(merchantRoot, scopeRoot ?? merchantRoot, step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, progress))
+            if (scopeRoot == null)
+                scopeRoot = merchantRoot;
+            if (!IsAutomationElementAlive(scopeRoot) || !IsAutomationElementAlive(target) || !IsAutomationElementAlive(anchor))
             {
-                progress.Report($"配置步骤#{step.TargetID} 执行失败（action={step.Action}）。");
+                resolveCache.Remove(cacheKey);
+                if (!TryResolveStepTarget(merchantRoot, step, out target, out anchor, out scopeRoot, out resolveDebug, cachedDialogScope))
+                {
+                    if (!string.IsNullOrWhiteSpace(resolveDebug))
+                        AutomationDevLog.Report(progress, resolveDebug);
+                    progress.Report($"{stepLabel} 未找到目标控件（targetType={step.TargetType}, targetText={step.TargetText}）。");
+                    return false;
+                }
+                resolveCache[cacheKey] = new ResolvedStepTarget(target, anchor, scopeRoot);
+            }
+
+            if (!string.IsNullOrWhiteSpace(resolveDebug))
+                AutomationDevLog.Report(progress, $"{stepLabel} {resolveDebug}");
+            AutomationDevLog.Report(progress,
+                $"{stepLabel} 定位成功：scope={DescribeElement(scopeRoot)}，target={DescribeElement(target)}，anchor={DescribeElement(anchor)}。");
+            if (string.Equals(step.TargetType, "dialog", StringComparison.OrdinalIgnoreCase) &&
+                scopeRoot != null &&
+                IsAutomationElementAlive(scopeRoot))
+            {
+                cachedDialogScope = scopeRoot;
+            }
+
+            if (!ExecuteStepAction(merchantRoot, scopeRoot ?? merchantRoot, step, target, anchor, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, paymentPassword, progress))
+            {
+                progress.Report($"{stepLabel} 执行失败（action={step.Action}）。");
                 return false;
             }
             var delayAfterStep = step.DelayMs ?? 300;
@@ -505,12 +565,104 @@ public class XunjieAutomationWorkflow
         return true;
     }
 
+    private static bool ShouldSkipAntiCheatStep(CaptureTargetItem step, AutomationElement merchantRoot, out string diagnostics)
+    {
+        diagnostics = "";
+        if (step.TargetID is not (9 or 10))
+            return false;
+        if (ContainsAntiCheatText(step.TargetText) ||
+            ContainsAntiCheatText(step.AnchorText) ||
+            ContainsAntiCheatText(step.InputValue) ||
+            ContainsAntiCheatText(step.Remark))
+        {
+            diagnostics = "（来源：步骤配置文本）";
+            return true;
+        }
+
+        if (TryDetectAntiCheatPopup(merchantRoot, out diagnostics))
+            return true;
+        return false;
+    }
+
+    private static bool ContainsAntiCheatText(string? value)
+        => !string.IsNullOrWhiteSpace(value) &&
+           value.Contains("反作弊", StringComparison.Ordinal);
+
+    private static bool TryDetectAntiCheatPopup(AutomationElement merchantRoot, out string diagnostics)
+    {
+        diagnostics = "";
+        if (merchantRoot == null)
+            return false;
+        try
+        {
+            var all = merchantRoot.FindAll(TreeScope.Descendants, Condition.TrueCondition);
+            foreach (AutomationElement el in all)
+            {
+                try
+                {
+                    var name = el.Current.Name ?? "";
+                    if (!name.Contains("反作弊", StringComparison.Ordinal))
+                        continue;
+                    var r = el.Current.BoundingRectangle;
+                    if (r.Width <= 0 || r.Height <= 0)
+                        continue;
+                    diagnostics = $"（来源：运行时UIA文本，命中={DescribeElement(el)}）";
+                    return true;
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    private static string BuildResolveCacheKey(CaptureTargetItem step)
+    {
+        return string.Join("|",
+            (step.TargetType ?? "").Trim().ToLowerInvariant(),
+            (step.TargetText ?? "").Trim(),
+            (step.AnchorType ?? "").Trim().ToLowerInvariant(),
+            (step.AnchorText ?? "").Trim(),
+            NormalizeAction(step.Action));
+    }
+
+    private static bool IsResolvedStepTargetValid(ResolvedStepTarget cached)
+    {
+        return IsAutomationElementAlive(cached.ScopeRoot) &&
+               IsAutomationElementAlive(cached.Target) &&
+               IsAutomationElementAlive(cached.Anchor);
+    }
+
+    private static bool IsAutomationElementAlive(AutomationElement? element)
+    {
+        if (element == null)
+            return true;
+        try
+        {
+            _ = element.Current.ProcessId;
+            _ = element.Current.ControlType;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// 签到流程：筛选「讯币」≥ <see cref="MinDailyCheckCoinInclusive"/> 的账号，逐个「显示此号」并按签到配置执行商家动作。
     /// </summary>
     public async Task<int> RunDailyCheckAsync(
         IProgress<string> progress,
         IReadOnlyList<CaptureTargetItem> captureTargets,
+        string? paymentPassword = null,
         CancellationToken cancellationToken = default)
     {
         if (captureTargets == null || captureTargets.Count == 0)
@@ -560,7 +712,8 @@ public class XunjieAutomationWorkflow
                 "",
                 "",
                 progress,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                paymentPassword).ConfigureAwait(false);
             if (!ok)
                 continue;
 
@@ -579,7 +732,8 @@ public class XunjieAutomationWorkflow
         out AutomationElement? target,
         out AutomationElement? anchor,
         out AutomationElement? scopeRoot,
-        out string? resolveDebug)
+        out string? resolveDebug,
+        AutomationElement? preferredDialogRoot = null)
     {
         target = null;
         anchor = null;
@@ -595,8 +749,24 @@ public class XunjieAutomationWorkflow
 
         if (string.Equals(step.TargetType, "dialog", StringComparison.OrdinalIgnoreCase))
         {
-            var dialogRoot = _automation.FindDialogWindow(merchantRoot, step.TargetText ?? "");
+            AutomationElement? dialogRoot = null;
+            if (preferredDialogRoot != null && IsAutomationElementAlive(preferredDialogRoot))
+            {
+                dialogRoot = preferredDialogRoot;
+                resolveDebug = $"步骤#{step.TargetID} 使用上一步 dialog 缓存加速定位。";
+            }
+
+            if (dialogRoot == null)
+                dialogRoot = _automation.FindDialogWindow(merchantRoot, step.TargetText ?? "");
             var action = NormalizeAction(step.Action);
+            if (dialogRoot == null && string.IsNullOrWhiteSpace(step.TargetText))
+            {
+                // Some dialogs have empty UIA title (e.g., payment password popup); fallback by common inner controls.
+                dialogRoot = _automation.FindDialogByInnerTarget(merchantRoot, "button", "确定")
+                           ?? _automation.FindDialogByInnerTarget(merchantRoot, "button", "确认");
+                if (dialogRoot != null)
+                    resolveDebug = $"步骤#{step.TargetID} dialog标题为空，已通过“确定/确认”按钮反查命中。";
+            }
             if (dialogRoot == null && action == "solve_math")
             {
                 dialogRoot = _automation.FindLikelyMathDialog(merchantRoot);
@@ -616,6 +786,13 @@ public class XunjieAutomationWorkflow
             }
 
             scopeRoot = dialogRoot;
+
+            if (action == "click" && string.IsNullOrWhiteSpace(step.AnchorType))
+            {
+                target = dialogRoot;
+                anchor = null;
+                return true;
+            }
 
             if (action == "solve_math")
             {
@@ -651,7 +828,10 @@ public class XunjieAutomationWorkflow
             }
 
             if (string.IsNullOrWhiteSpace(step.AnchorType))
+            {
+                resolveDebug = $"步骤#{step.TargetID} dialog已定位，但当前动作 {action} 需要配置 AnchorType/AnchorText。";
                 return false;
+            }
 
             var innerStep = new CaptureTargetItem
             {
@@ -697,6 +877,7 @@ public class XunjieAutomationWorkflow
         string recipientPhone,
         string withdrawName,
         string alipayAccount,
+        string? paymentPassword,
         IProgress<string> progress)
     {
         var action = NormalizeAction(step.Action);
@@ -704,20 +885,33 @@ public class XunjieAutomationWorkflow
         {
             var (wx, wy) = GetWindowOffsetPoint(target, step.OffsetX, step.OffsetY);
             if (wx <= 0 || wy <= 0)
+            {
+                progress.Report($"配置步骤#{step.TargetID} window 动作失败：窗口偏移坐标无效（x={wx}, y={wy}）。");
                 return false;
+            }
             _automation.LeftClickAt(wx, wy);
             AutomationDevLog.Report(progress, $"步骤#{step.TargetID} window 偏移动作完成，坐标=({wx},{wy})。");
             if (action != "moveTo_click_input")
                 return true;
 
-            var inputValueByWindow = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount);
+            var inputValueByWindow = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, paymentPassword);
             if (string.IsNullOrEmpty(inputValueByWindow))
+            {
+                progress.Report($"配置步骤#{step.TargetID} window 输入失败：输入值为空（InputValue={step.InputValue ?? "<null>"}）。");
                 return false;
+            }
+            AutomationDevLog.Report(progress,
+                $"步骤#{step.TargetID} window moveTo_click_input：解析输入框，搜索范围={DescribeElement(target)}，点击点=({wx},{wy})。");
+            AutomationDevLog.Report(progress, DescribeHitChain(wx, wy));
             var inputTarget = ResolveInputTargetAtPoint(target, wx, wy);
             if (inputTarget == null)
+            {
+                progress.Report($"配置步骤#{step.TargetID} window 输入失败：未在点击点附近定位到输入框。");
                 return false;
+            }
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} window 最终输入控件：{DescribeElement(inputTarget)}。");
             _automation.SetEditValue(inputTarget, inputValueByWindow);
-            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} window 输入完成，值={inputValueByWindow}。");
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} window 输入完成，字符数={inputValueByWindow.Length}。");
             return true;
         }
 
@@ -757,7 +951,7 @@ public class XunjieAutomationWorkflow
         {
             if (target == null)
                 return false;
-            var selectText = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount);
+            var selectText = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, paymentPassword);
             if (string.IsNullOrWhiteSpace(selectText))
             {
                 progress.Report($"配置步骤#{step.TargetID} 动作 click_select 需要填写「输入值」（或与选项文案一致）。");
@@ -782,6 +976,7 @@ public class XunjieAutomationWorkflow
             }
 
             _automation.SetEditValue(target, computed.ToString());
+            AutomationDevLog.Report(progress, $"步骤#{step.TargetID} solve_math 诊断：{mathDiag}");
             AutomationDevLog.Report(progress, $"步骤#{step.TargetID} solve_math 已填入计算结果：{computed}。");
             return true;
         }
@@ -790,19 +985,109 @@ public class XunjieAutomationWorkflow
             return false;
         var (x, y) = GetOffsetPoint(anchor, step.OffsetX, step.OffsetY);
         if (x <= 0 || y <= 0)
+        {
+            progress.Report($"配置步骤#{step.TargetID} {action} 失败：锚点偏移坐标无效（x={x}, y={y}）。");
             return false;
+        }
         _automation.LeftClickAt(x, y);
         AutomationDevLog.Report(progress, $"步骤#{step.TargetID} {action} 偏移点击完成，坐标=({x},{y})。");
 
         if (action != "moveTo_click_input")
             return true;
 
-        var inputValue = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount);
-        if (target == null || string.IsNullOrEmpty(inputValue))
+        var inputValue = ResolveInputValue(step, withdrawAmountCoins, recipientPhone, withdrawName, alipayAccount, paymentPassword);
+        if (string.IsNullOrEmpty(inputValue))
+        {
+            progress.Report($"配置步骤#{step.TargetID} {action} 失败：输入值为空（InputValue={step.InputValue ?? "<null>"}）。");
             return false;
-        _automation.SetEditValue(target, inputValue);
-        AutomationDevLog.Report(progress, $"步骤#{step.TargetID} 输入完成，值={inputValue}。");
+        }
+
+        // 锚点通常用于“相对按钮偏移点击”，输入目标必须在点击点附近解析；不能把锚点控件本身当作 Edit。
+        AutomationDevLog.Report(progress,
+            $"步骤#{step.TargetID} moveTo_click_input：点击后解析输入框，搜索范围={DescribeElement(scopeRoot)}，点击点=({x},{y})。");
+        AutomationDevLog.Report(progress, DescribeHitChain(x, y));
+
+        var inputEl = ResolveInputTargetAtPoint(scopeRoot, x, y)
+                      ?? ResolveInputTargetAtPoint(merchantRoot, x, y);
+        if (inputEl == null)
+        {
+            inputEl = _automation.FindFirstEditInSubtree(scopeRoot);
+            if (inputEl != null)
+                AutomationDevLog.Report(progress, $"步骤#{step.TargetID} 回退：在 scope 子树取首个 Edit：{DescribeElement(inputEl)}。");
+        }
+
+        if (inputEl == null)
+        {
+            progress.Report($"配置步骤#{step.TargetID} {action} 失败：点击后未解析到可输入的 Edit（请检查偏移是否落在输入框上，或弹窗 UIA 树是否暴露 Edit）。");
+            return false;
+        }
+
+        AutomationDevLog.Report(progress, $"步骤#{step.TargetID} 最终输入控件：{DescribeElement(inputEl)}。");
+        _automation.SetEditValue(inputEl, inputValue);
+        AutomationDevLog.Report(progress, $"步骤#{step.TargetID} 输入完成，字符数={inputValue.Length}。");
         return true;
+    }
+
+    private static string DescribeHitChain(int x, int y)
+    {
+        try
+        {
+            var hit = AutomationElement.FromPoint(new System.Windows.Point(x, y));
+            if (hit == null)
+                return "命中点链：FromPoint 返回 null。";
+            var parts = new List<string>();
+            AutomationElement? cur = hit;
+            for (var i = 0; i < 8 && cur != null; i++)
+            {
+                parts.Add($"[{i}]{DescribeElement(cur)}");
+                cur = TreeWalker.ControlViewWalker.GetParent(cur);
+            }
+
+            return "命中点链：" + string.Join(" <- ", parts);
+        }
+        catch (Exception ex)
+        {
+            return $"命中点链：异常 {ex.Message}";
+        }
+    }
+
+    private static string DescribeElement(AutomationElement? element)
+    {
+        if (element == null)
+            return "<null>";
+        try
+        {
+            var ct = element.Current.ControlType?.ProgrammaticName ?? "<unknown>";
+            var name = element.Current.Name ?? "";
+            var r = element.Current.BoundingRectangle;
+            var rect = $"[{(int)r.Left},{(int)r.Top},{(int)r.Width},{(int)r.Height}]";
+            var pid = 0;
+            try
+            {
+                pid = element.Current.ProcessId;
+            }
+            catch
+            {
+                // ignore
+            }
+
+            var hwnd = 0;
+            try
+            {
+                hwnd = element.Current.NativeWindowHandle;
+            }
+            catch
+            {
+                // ignore
+            }
+
+            var hwndPart = hwnd != 0 ? $",hwnd=0x{hwnd:X}" : "";
+            return $"{ct},name=\"{name}\",rect={rect},pid={pid}{hwndPart}";
+        }
+        catch
+        {
+            return "<invalid>";
+        }
     }
 
     private static bool IsCheckboxTargetType(string? targetType) =>
@@ -834,7 +1119,8 @@ public class XunjieAutomationWorkflow
         int withdrawAmountCoins,
         string recipientPhone,
         string withdrawName,
-        string alipayAccount)
+        string alipayAccount,
+        string? paymentPassword)
     {
         var raw = (step.InputValue ?? "").Trim();
         if (string.IsNullOrWhiteSpace(raw))
@@ -857,6 +1143,8 @@ public class XunjieAutomationWorkflow
             if (string.Equals(varName, "AlipayAccount", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(varName, "Alipay", StringComparison.OrdinalIgnoreCase))
                 return alipayAccount;
+            if (string.Equals(varName, "PaymentPassword", StringComparison.OrdinalIgnoreCase))
+                return paymentPassword ?? "";
             return "";
         }
 
@@ -1411,6 +1699,7 @@ fallbackNearest:
         AutomationElement merchantRoot,
         IReadOnlyList<CaptureTargetItem> steps,
         IProgress<string> progress,
-        CancellationToken ct)
-        => ExecuteConfiguredMerchantActionsAsync(merchantRoot, steps, 0, "", "", "", progress, ct);
+        CancellationToken ct,
+        string? paymentPassword = null)
+        => ExecuteConfiguredMerchantActionsAsync(merchantRoot, steps, 0, "", "", "", progress, ct, paymentPassword);
 }

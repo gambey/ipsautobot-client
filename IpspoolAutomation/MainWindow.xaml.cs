@@ -42,4 +42,19 @@ public partial class MainWindow : Window
         if (PaymentPasswordBox.Password != (vm.PaymentPassword ?? ""))
             PaymentPasswordBox.Password = vm.PaymentPassword ?? "";
     }
+
+    private void ReadOnlyLogTextBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox tb)
+            return;
+        try
+        {
+            tb.CaretIndex = tb.Text.Length;
+            tb.ScrollToEnd();
+        }
+        catch
+        {
+            // 绑定大批量追加时偶发边界情况，忽略即可
+        }
+    }
 }

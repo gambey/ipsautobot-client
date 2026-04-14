@@ -109,11 +109,6 @@ public sealed partial class CaptureSettingsViewModel : ObservableObject
             foreach (var row in CaptureTargets)
             {
                 var type = NormalizeType(row.TargetType);
-                if (!string.Equals(type, "window", StringComparison.Ordinal) &&
-                    string.IsNullOrWhiteSpace(row.TargetText) &&
-                    string.IsNullOrWhiteSpace(row.AnchorText))
-                    continue;
-
                 _ = int.TryParse(row.OffsetX, out var ox);
                 _ = int.TryParse(row.OffsetY, out var oy);
                 var delayMs = 300;

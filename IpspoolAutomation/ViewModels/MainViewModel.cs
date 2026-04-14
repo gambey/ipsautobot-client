@@ -338,7 +338,11 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
-            var success = await workflow.RunDailyCheckAsync(progress, DailyCheckTargetList.ToList(), _cts.Token).ConfigureAwait(true);
+            var success = await workflow.RunDailyCheckAsync(
+                progress,
+                DailyCheckTargetList.ToList(),
+                paymentPassword: PaymentPassword,
+                cancellationToken: _cts.Token).ConfigureAwait(true);
             CheckinStatusMessage = $"签到流程结束，成功处理账号：{success}。";
             if (IsScheduledCheckinMode)
             {
@@ -444,7 +448,8 @@ public sealed partial class MainViewModel : ObservableObject
                 CaptureTargetList.ToList(),
                 fixedCoins,
                 withdrawTargetRowId,
-                _cts.Token).ConfigureAwait(true);
+                paymentPassword: PaymentPassword,
+                cancellationToken: _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "自动提现流程已结束。";
             if (runResult != null)
             {
@@ -551,7 +556,8 @@ public sealed partial class MainViewModel : ObservableObject
                 wo.CaptureTargetList,
                 fixedCoinsOpt,
                 withdrawTargetRowId,
-                _cts.Token).ConfigureAwait(true);
+                paymentPassword: PaymentPassword,
+                cancellationToken: _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "仅提现不兑换流程已结束。";
             if (runResult != null)
             {
@@ -668,7 +674,8 @@ public sealed partial class MainViewModel : ObservableObject
                 useAutoExchange,
                 fixedExchangeCoins,
                 KeepReserve235000,
-                _cts.Token).ConfigureAwait(true);
+                paymentPassword: PaymentPassword,
+                cancellationToken: _cts.Token).ConfigureAwait(true);
             ExchangeStatusMessage = "仅兑换流程已结束。";
         }
         catch (OperationCanceledException)
@@ -1081,7 +1088,7 @@ public sealed partial class MainViewModel : ObservableObject
 
             var workflow = new StopPlatformOrderingWorkflow(_automationService, HelperPath, MerchantPath);
             var steps = persisted.CaptureTargetList;
-            var ok = await workflow.RunAsync(take, steps, progress, _cts.Token, flowDisplayName: "停止平台单").ConfigureAwait(true);
+            var ok = await workflow.RunAsync(take, steps, progress, _cts.Token, flowDisplayName: "停止平台单", paymentPassword: PaymentPassword).ConfigureAwait(true);
             PlatformOrderManagementStatusMessage = $"停止平台单已结束，成功处理 {ok} 个账号。";
         }
         catch (OperationCanceledException)
@@ -1193,7 +1200,7 @@ public sealed partial class MainViewModel : ObservableObject
 
             var workflow = new StopPlatformOrderingWorkflow(_automationService, HelperPath, MerchantPath);
             var steps = persisted.CaptureTargetList;
-            var ok = await workflow.RunAsync(take, steps, progress, _cts.Token, flowDisplayName: "启用平台单").ConfigureAwait(true);
+            var ok = await workflow.RunAsync(take, steps, progress, _cts.Token, flowDisplayName: "启用平台单", paymentPassword: PaymentPassword).ConfigureAwait(true);
             PlatformOrderManagementStatusMessage = $"启用平台单已结束，成功处理 {ok} 个账号。";
         }
         catch (OperationCanceledException)
@@ -1333,7 +1340,7 @@ public sealed partial class MainViewModel : ObservableObject
                 {
                     ct.ThrowIfCancellationRequested();
                     var refund = (decimal)TargetRefundRatePercent;
-                    var row = await workflow.ProcessCandidateAsync(c, settings, refund, progress, ct).ConfigureAwait(true);
+                    var row = await workflow.ProcessCandidateAsync(c, settings, refund, progress, ct, PaymentPassword).ConfigureAwait(true);
                     if (row != null)
                     {
                         await Application.Current.Dispatcher.InvokeAsync(() =>

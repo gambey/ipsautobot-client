@@ -25,7 +25,8 @@ public sealed class StopPlatformOrderingWorkflow
         IReadOnlyList<CaptureTargetItem> steps,
         IProgress<string> progress,
         CancellationToken ct,
-        string flowDisplayName = "停止平台单")
+        string flowDisplayName = "停止平台单",
+        string? paymentPassword = null)
     {
         if (steps == null || steps.Count == 0)
         {
@@ -70,7 +71,7 @@ public sealed class StopPlatformOrderingWorkflow
 
             EnsureWindowNormal(merchantRoot);
 
-            var ok = await _wf.ExecuteCaptureStepsAsync(merchantRoot, steps, progress, ct).ConfigureAwait(false);
+            var ok = await _wf.ExecuteCaptureStepsAsync(merchantRoot, steps, progress, ct, paymentPassword).ConfigureAwait(false);
             if (!ok)
             {
                 progress.Report($"商家端步骤未完成，跳过：{c.Username}");
