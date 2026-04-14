@@ -1,0 +1,22 @@
+<Window x:Class="IpspoolAutomation.Views.WithdrawLogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="提现日志" Height="520" Width="760"
+        WindowStartupLocation="CenterOwner"
+        MinHeight="360" MinWidth="560">
+    <Grid Margin="12">
+        <TextBox x:Name="LogTextBox"
+                 Text="{Binding LogText, Mode=OneWay}"
+                 TextChanged="LogTextBox_OnTextChanged"
+                 IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto"
+                 AcceptsReturn="True"
+                 FontFamily="Consolas"
+                 FontSize="12"
+                 BorderBrush="#FFE5E7EB"
+                 BorderThickness="1"
+                 Padding="8"/>
+    </Grid>
+</Window>

@@ -38,6 +38,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IStopPlatformOrderingSettingsService _stopPlatformOrderingSettingsService;
     private readonly IStartPlatformOrderingSettingsService _startPlatformOrderingSettingsService;
     private CancellationTokenSource? _cts;
+    private WithdrawLogWindow? _withdrawLogWindow;
+    private ExchangeLogWindow? _exchangeLogWindow;
     private bool _suppressPlatformOrderAccountCountPersist;
     private Action? _onLogout;
     private bool _suppressUiSettingsPersist;
@@ -60,8 +62,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private decimal _totalExchangedCoins;
 
     [ObservableProperty] private string _withdrawStatusMessage = "提现流程待接入自动化步骤。";
+    [ObservableProperty] private string _withdrawProgressHintText = "";
     [ObservableProperty] private string _exchangeStatusMessage = "";
     [ObservableProperty] private string _exchangeLogText = "";
+    [ObservableProperty] private string _exchangeProgressHintText = "";
     [ObservableProperty] private string _checkinMode = "Cancel";
     [ObservableProperty] private bool _isImmediateCheckinMode;
     [ObservableProperty] private bool _isScheduledCheckinMode;
@@ -76,13 +80,14 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _helperPath = "";
     [ObservableProperty] private string _withdrawName = "";
     [ObservableProperty] private string _alipayAccount = "";
-    [ObservableProperty] private bool _keepReserve235000;
+    [ObservableProperty] private string _withdrawMinScoreExclusiveText = "105000";
 
     /// <summary>提现额度下拉：<c>Auto</c>、<c>100</c>、<c>200</c>、<c>300</c>、<c>500</c>、<c>1000</c>。</summary>
     [ObservableProperty] private string _withdrawCoinPreset = "Auto";
 
     /// <summary>兑换页「兑换额度」下拉，与提现额度独立。</summary>
     [ObservableProperty] private string _exchangeCoinPreset = "Auto";
+    [ObservableProperty] private string _exchangeMinScoreExclusiveText = "105000";
 
     /// <summary>提现目标：辅助表格「选择」列序号（与日志 rowID 一致）；0 或无效值表示不限制。</summary>
     [ObservableProperty] private string _withdrawTargetSelectRowIdText = "0";
@@ -417,6 +422,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         WithdrawStatusMessage = "正在执行自动提现…";
+        WithdrawProgressHintText = "";
         IsRunning = true;
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
@@ -430,13 +436,13 @@ public sealed partial class MainViewModel : ObservableObject
         {
             LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
             LogText = string.Join(Environment.NewLine, LogLines);
+            WithdrawProgressHintText = UpdateNoCandidateHint(WithdrawProgressHintText, s);
         });
         try
         {
             var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
-            var withdrawMinScoreExclusive = KeepReserve235000
-                ? 235000 + HelperGridReader.MinWithdrawableScore
-                : HelperGridReader.MinWithdrawableScore;
+            // 仅提现不兑换：不按“可提收益固定阈值”过滤，仅按讯币列与提现额度过滤。
+            var withdrawMinScoreExclusive = int.MinValue;
             var fixedCoins = TryGetFixedWithdrawCoinsFromPreset(out _);
             var withdrawTargetRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText);
             var runResult = await workflow.RunWithdrawAsync(
@@ -449,6 +455,7 @@ public sealed partial class MainViewModel : ObservableObject
                 fixedCoins,
                 withdrawTargetRowId,
                 paymentPassword: PaymentPassword,
+                onProgressSnapshot: UpdateWithdrawProgressHint,
                 cancellationToken: _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "自动提现流程已结束。";
             if (runResult != null)
@@ -469,6 +476,8 @@ public sealed partial class MainViewModel : ObservableObject
         }
         finally
         {
+            if (!string.IsNullOrWhiteSpace(WithdrawProgressHintText))
+                WithdrawProgressHintText += Environment.NewLine + "流程已结束。";
             IsRunning = false;
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
@@ -522,6 +531,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         WithdrawStatusMessage = "正在执行仅提现不兑换…";
+        WithdrawProgressHintText = "";
         IsRunning = true;
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
@@ -535,13 +545,12 @@ public sealed partial class MainViewModel : ObservableObject
         {
             LogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
             LogText = string.Join(Environment.NewLine, LogLines);
+            WithdrawProgressHintText = UpdateNoCandidateHint(WithdrawProgressHintText, s);
         });
         try
         {
             var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
-            var withdrawMinScoreExclusive = KeepReserve235000
-                ? 235000 + HelperGridReader.MinWithdrawableScore
-                : HelperGridReader.MinWithdrawableScore;
+            var withdrawMinScoreExclusive = ResolveWithdrawMinScoreExclusive();
             var useAuto = string.Equals(WithdrawCoinPreset, "Auto", StringComparison.OrdinalIgnoreCase);
             var fixedCoinsOpt = TryGetFixedWithdrawCoinsFromPreset(out _);
             var withdrawTargetRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText);
@@ -557,6 +566,7 @@ public sealed partial class MainViewModel : ObservableObject
                 fixedCoinsOpt,
                 withdrawTargetRowId,
                 paymentPassword: PaymentPassword,
+                onProgressSnapshot: UpdateWithdrawProgressHint,
                 cancellationToken: _cts.Token).ConfigureAwait(true);
             WithdrawStatusMessage = "仅提现不兑换流程已结束。";
             if (runResult != null)
@@ -577,6 +587,8 @@ public sealed partial class MainViewModel : ObservableObject
         }
         finally
         {
+            if (!string.IsNullOrWhiteSpace(WithdrawProgressHintText))
+                WithdrawProgressHintText += Environment.NewLine + "流程已结束。";
             IsRunning = false;
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
@@ -644,6 +656,7 @@ public sealed partial class MainViewModel : ObservableObject
         ExchangeStatusMessage = "正在执行仅兑换流程…";
         ExchangeLogLines.Clear();
         ExchangeLogText = "";
+        ExchangeProgressHintText = "";
         IsRunning = true;
         StartWithdrawCommand.NotifyCanExecuteChanged();
         StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
@@ -657,13 +670,12 @@ public sealed partial class MainViewModel : ObservableObject
         {
             ExchangeLogLines.Add($"[{DateTime.Now:HH:mm:ss}] {s}");
             ExchangeLogText = string.Join(Environment.NewLine, ExchangeLogLines);
+            ExchangeProgressHintText = UpdateNoCandidateHint(ExchangeProgressHintText, s);
         });
         try
         {
             var workflow = new XunjieAutomationWorkflow(_automationService, HelperPath, MerchantPath);
-            var minScoreExclusive = KeepReserve235000
-                ? 235000 + HelperGridReader.MinWithdrawableScore
-                : HelperGridReader.MinWithdrawableScore;
+            var minScoreExclusive = ResolveExchangeMinScoreExclusive();
             await workflow.RunExchangeScoreAsync(
                 progress,
                 AlipayAccount,
@@ -673,8 +685,8 @@ public sealed partial class MainViewModel : ObservableObject
                 settings.CaptureTargetList,
                 useAutoExchange,
                 fixedExchangeCoins,
-                KeepReserve235000,
                 paymentPassword: PaymentPassword,
+                onProgressSnapshot: UpdateExchangeProgressHint,
                 cancellationToken: _cts.Token).ConfigureAwait(true);
             ExchangeStatusMessage = "仅兑换流程已结束。";
         }
@@ -690,6 +702,8 @@ public sealed partial class MainViewModel : ObservableObject
         }
         finally
         {
+            if (!string.IsNullOrWhiteSpace(ExchangeProgressHintText))
+                ExchangeProgressHintText += Environment.NewLine + "流程已结束。";
             IsRunning = false;
             StartWithdrawCommand.NotifyCanExecuteChanged();
             StartWithdrawOnlyCommand.NotifyCanExecuteChanged();
@@ -929,6 +943,46 @@ public sealed partial class MainViewModel : ObservableObject
         w.Show();
     }
 
+    [RelayCommand]
+    private void OpenExchangeLog()
+    {
+        if (_exchangeLogWindow is { IsLoaded: true })
+        {
+            if (_exchangeLogWindow.WindowState == WindowState.Minimized)
+                _exchangeLogWindow.WindowState = WindowState.Normal;
+            _exchangeLogWindow.Activate();
+            return;
+        }
+
+        _exchangeLogWindow = new ExchangeLogWindow
+        {
+            Owner = Application.Current.MainWindow,
+            DataContext = this
+        };
+        _exchangeLogWindow.Closed += (_, _) => _exchangeLogWindow = null;
+        _exchangeLogWindow.Show();
+    }
+
+    [RelayCommand]
+    private void OpenWithdrawLog()
+    {
+        if (_withdrawLogWindow is { IsLoaded: true })
+        {
+            if (_withdrawLogWindow.WindowState == WindowState.Minimized)
+                _withdrawLogWindow.WindowState = WindowState.Normal;
+            _withdrawLogWindow.Activate();
+            return;
+        }
+
+        _withdrawLogWindow = new WithdrawLogWindow
+        {
+            Owner = Application.Current.MainWindow,
+            DataContext = this
+        };
+        _withdrawLogWindow.Closed += (_, _) => _withdrawLogWindow = null;
+        _withdrawLogWindow.Show();
+    }
+
     private void LoadAutoOrderingPersistedRows()
     {
         try
@@ -1068,9 +1122,7 @@ public sealed partial class MainViewModel : ObservableObject
         });
         try
         {
-            var minScoreExclusive = KeepReserve235000
-                ? 235000 + HelperGridReader.MinWithdrawableScore
-                : HelperGridReader.MinWithdrawableScore;
+            var minScoreExclusive = HelperGridReader.MinWithdrawableScore;
             progress.Report("正在启动/附着迅捷小辅助…");
             var helperRoot = _automationService.LaunchOrAttach(HelperPath);
             if (helperRoot == null)
@@ -1180,9 +1232,7 @@ public sealed partial class MainViewModel : ObservableObject
         });
         try
         {
-            var minScoreExclusive = KeepReserve235000
-                ? 235000 + HelperGridReader.MinWithdrawableScore
-                : HelperGridReader.MinWithdrawableScore;
+            var minScoreExclusive = HelperGridReader.MinWithdrawableScore;
             progress.Report("正在启动/附着迅捷小辅助…");
             var helperRoot = _automationService.LaunchOrAttach(HelperPath);
             if (helperRoot == null)
@@ -1379,6 +1429,62 @@ public sealed partial class MainViewModel : ObservableObject
         SummaryAvgDiffSum = AcceptedOrderRows.Sum(r => r.AvgDiff);
         SummaryHighDiffRatioAvgPercent = AcceptedOrderRows.Sum(r => r.HighDiffRatioPercent) / n;
         SummaryAvgDiffRatioAvgPercent = AcceptedOrderRows.Sum(r => r.AvgDiffRatioPercent) / n;
+    }
+
+    private void UpdateWithdrawProgressHint(XunjieAutomationWorkflow.WithdrawProgressSnapshot snapshot)
+    {
+        var total = Math.Max(0, snapshot.TotalCount);
+        var current = Math.Clamp(snapshot.CurrentIndex, 0, total == 0 ? 0 : total);
+        var completed = Math.Clamp(snapshot.CompletedCount, 0, total);
+        WithdrawProgressHintText =
+            $"共{total}条数据{Environment.NewLine}" +
+            $"正在处理第({current}/{total})条数据，rowID={snapshot.RowId}, 用户名=\"{snapshot.Username}\"{Environment.NewLine}" +
+            $"共处理{completed}条数据。";
+    }
+
+    private void UpdateExchangeProgressHint(XunjieAutomationWorkflow.WithdrawProgressSnapshot snapshot)
+    {
+        var total = Math.Max(0, snapshot.TotalCount);
+        var current = Math.Clamp(snapshot.CurrentIndex, 0, total == 0 ? 0 : total);
+        var completed = Math.Clamp(snapshot.CompletedCount, 0, total);
+        ExchangeProgressHintText =
+            $"共{total}条数据{Environment.NewLine}" +
+            $"正在处理第({current}/{total})条数据，rowID={snapshot.RowId}, 用户名=\"{snapshot.Username}\"{Environment.NewLine}" +
+            $"共处理{completed}条数据。";
+    }
+
+    private static string UpdateNoCandidateHint(string currentHint, string message)
+    {
+        if (message.StartsWith("符合条件的账号数", StringComparison.Ordinal) &&
+            (message.EndsWith("：0", StringComparison.Ordinal) || message.EndsWith(":0", StringComparison.Ordinal)))
+        {
+            return "符合条件的账号数：0";
+        }
+
+        if (message.Contains("没有需要处理的账号，结束。", StringComparison.Ordinal))
+        {
+            return string.IsNullOrWhiteSpace(currentHint)
+                ? "符合条件的账号数：0" + Environment.NewLine + "没有需要处理的账号，结束。"
+                : currentHint + Environment.NewLine + "没有需要处理的账号，结束。";
+        }
+
+        return currentHint;
+    }
+
+    private int ResolveWithdrawMinScoreExclusive()
+    {
+        if (int.TryParse(WithdrawMinScoreExclusiveText, out var threshold) &&
+            (threshold == 105000 || threshold == 235000 || threshold == 340000))
+            return threshold;
+        return HelperGridReader.MinWithdrawableScore;
+    }
+
+    private int ResolveExchangeMinScoreExclusive()
+    {
+        if (int.TryParse(ExchangeMinScoreExclusiveText, out var threshold) &&
+            (threshold == 105000 || threshold == 235000 || threshold == 340000))
+            return threshold;
+        return HelperGridReader.MinWithdrawableScore;
     }
 
     partial void OnTargetRefundRatePercentChanged(double value)

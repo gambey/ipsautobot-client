@@ -9,6 +9,13 @@ namespace IpspoolAutomation.Automation;
 
 public class XunjieAutomationWorkflow
 {
+    public readonly record struct WithdrawProgressSnapshot(
+        int TotalCount,
+        int CurrentIndex,
+        int CompletedCount,
+        int RowId,
+        string Username);
+
     /// <summary>手续费比例：手续费 = 兑换积分 × WithdrawFeeRatio（与 ComputeWithdrawAmountCoins 内一致）。</summary>
     public const double WithdrawFeeRatio = 0.05;
     private static readonly int[] WithdrawOptions = { 1000, 500, 300, 200, 100 };
@@ -48,14 +55,13 @@ public class XunjieAutomationWorkflow
     }
 
     /// <summary>
-    /// 兑换页固定「兑换额度」Q（讯币）时，辅助列表筛选阈值：可提收益需 ≥ Q×1000 + Q×1000×5% +（勾选保留235000 时 +235000）。
+    /// 兑换页固定「兑换额度」Q（讯币）时，辅助列表筛选阈值：可提收益需 ≥ Q×1000 + Q×1000×5%。
     /// </summary>
-    public static int ComputeExchangeMinScoreForQuota(int optionCoins, bool keepReserve235000)
+    public static int ComputeExchangeMinScoreForQuota(int optionCoins)
     {
         var coinCostPoints = optionCoins * ScoreToCoinRatio;
         var feePoints = (int)Math.Round(coinCostPoints * WithdrawFeeRatio, MidpointRounding.AwayFromZero);
-        var reserve = keepReserve235000 ? 235000 : 0;
-        return coinCostPoints + feePoints + reserve;
+        return coinCostPoints + feePoints;
     }
 
     public async Task RunAsync(IProgress<string> progress, CancellationToken cancellationToken = default)
@@ -96,6 +102,7 @@ public class XunjieAutomationWorkflow
         int? fixedWithdrawCoins = null,
         int withdrawTargetSelectRowId = 0,
         string? paymentPassword = null,
+        Action<WithdrawProgressSnapshot>? onProgressSnapshot = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -133,10 +140,18 @@ public class XunjieAutomationWorkflow
         var processedCount = 0;
         long totalCoins = 0;
         var detailRows = new List<WithdrawDetailItem>();
+        var totalCount = candidates.Count;
 
-        foreach (var c in candidates)
+        for (var i = 0; i < candidates.Count; i++)
         {
+            var c = candidates[i];
             cancellationToken.ThrowIfCancellationRequested();
+            onProgressSnapshot?.Invoke(new WithdrawProgressSnapshot(
+                totalCount,
+                i + 1,
+                processedCount,
+                c.RowId,
+                c.Username));
             var coins = fixedWithdrawCoins ?? ComputeWithdrawAmountCoins(c.Score);
             progress.Report(fixedWithdrawCoins.HasValue
                 ? $"处理用户 rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，提现讯币(固定档位)={coins}。"
@@ -194,6 +209,12 @@ public class XunjieAutomationWorkflow
             detailRows.Add(CreateWithdrawDetailItem(c.Username, c.Score, coins));
             processedCount++;
             totalCoins += coins;
+            onProgressSnapshot?.Invoke(new WithdrawProgressSnapshot(
+                totalCount,
+                i + 1,
+                processedCount,
+                c.RowId,
+                c.Username));
             await Task.Delay(300, cancellationToken).ConfigureAwait(false);
         }
 
@@ -217,6 +238,7 @@ public class XunjieAutomationWorkflow
         int? fixedWithdrawCoinsForExecution,
         int withdrawTargetSelectRowId = 0,
         string? paymentPassword = null,
+        Action<WithdrawProgressSnapshot>? onProgressSnapshot = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -266,10 +288,18 @@ public class XunjieAutomationWorkflow
         var processedCount = 0;
         long totalCoins = 0;
         var detailRows = new List<WithdrawDetailItem>();
+        var totalCount = candidates.Count;
 
-        foreach (var c in candidates)
+        for (var i = 0; i < candidates.Count; i++)
         {
+            var c = candidates[i];
             cancellationToken.ThrowIfCancellationRequested();
+            onProgressSnapshot?.Invoke(new WithdrawProgressSnapshot(
+                totalCount,
+                i + 1,
+                processedCount,
+                c.RowId,
+                c.Username));
             var coins = fixedWithdrawCoinsForExecution ?? ComputeWithdrawAmountCoins(c.Score);
             progress.Report($"[仅提现不兑换] rowID={c.RowId}，用户名={c.Username}，可提收益(积分)={c.Score}，执行讯币={coins}。");
             if (coins <= 0)
@@ -314,6 +344,12 @@ public class XunjieAutomationWorkflow
             detailRows.Add(CreateWithdrawDetailItem(c.Username, c.Score, coins));
             processedCount++;
             totalCoins += coins;
+            onProgressSnapshot?.Invoke(new WithdrawProgressSnapshot(
+                totalCount,
+                i + 1,
+                processedCount,
+                c.RowId,
+                c.Username));
             await Task.Delay(300, cancellationToken).ConfigureAwait(false);
         }
 
@@ -334,8 +370,8 @@ public class XunjieAutomationWorkflow
         IReadOnlyList<CaptureTargetItem> steps,
         bool useAutoExchangeCoins = true,
         int? fixedExchangeCoins = null,
-        bool keepReserve235000ForQuota = false,
         string? paymentPassword = null,
+        Action<WithdrawProgressSnapshot>? onProgressSnapshot = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(recipientPhone))
@@ -374,10 +410,12 @@ public class XunjieAutomationWorkflow
                 progress.Report("固定兑换额度无效，请重新选择兑换额度。");
                 return null;
             }
-            exchangeMinInclusive = ComputeExchangeMinScoreForQuota(q, keepReserve235000ForQuota);
+            exchangeMinInclusive = ComputeExchangeMinScoreForQuota(q);
+            var minScoreInclusiveByFilter = minScoreExclusive + 1;
+            var finalMinScoreInclusive = Math.Max(exchangeMinInclusive.Value, minScoreInclusiveByFilter);
             progress.Report(
-                $"兑换额度={q} 讯币；兑换积分阈值（可提收益需≥）={exchangeMinInclusive}（含 5% 手续费积分，{(keepReserve235000ForQuota ? "含保留 235000" : "不含保留 235000")}）。");
-            raw = HelperGridReader.CollectCandidatesWithMinScoreInclusive(helperRoot, progress, exchangeMinInclusive.Value);
+                $"兑换额度={q} 讯币；兑换积分阈值（可提收益需≥）={exchangeMinInclusive}（含 5% 手续费积分）；页面筛选（可提收益>{minScoreExclusive}）后最终阈值（可提收益需≥）={finalMinScoreInclusive}。");
+            raw = HelperGridReader.CollectCandidatesWithMinScoreInclusive(helperRoot, progress, finalMinScoreInclusive);
         }
 
         var candidates = DeduplicateByUsername(raw);
@@ -396,10 +434,18 @@ public class XunjieAutomationWorkflow
         var processedCount = 0;
         long totalCoins = 0;
         var detailRows = new List<WithdrawDetailItem>();
+        var totalCount = candidates.Count;
 
-        foreach (var c in candidates)
+        for (var i = 0; i < candidates.Count; i++)
         {
+            var c = candidates[i];
             cancellationToken.ThrowIfCancellationRequested();
+            onProgressSnapshot?.Invoke(new WithdrawProgressSnapshot(
+                totalCount,
+                i + 1,
+                processedCount,
+                c.RowId,
+                c.Username));
             var coins = useAutoExchangeCoins
                 ? ComputeWithdrawAmountCoins(c.Score)
                 : fixedExchangeCoins!.Value;
@@ -446,6 +492,12 @@ public class XunjieAutomationWorkflow
             detailRows.Add(CreateWithdrawDetailItem(c.Username, c.Score, coins));
             processedCount++;
             totalCoins += coins;
+            onProgressSnapshot?.Invoke(new WithdrawProgressSnapshot(
+                totalCount,
+                i + 1,
+                processedCount,
+                c.RowId,
+                c.Username));
             await Task.Delay(300, cancellationToken).ConfigureAwait(false);
         }
 
