@@ -3,32 +3,33 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{Binding WindowTitle}" Height="760" Width="1180"
         MinHeight="700" MinWidth="1080"
-        WindowStartupLocation="CenterScreen">
-    <Grid Background="#FFF5F6F8">
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource AppBackgroundBrush}">
+    <Grid Background="{DynamicResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="64"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#FF1F2937" Padding="16,0">
+        <Border Grid.Row="0" Background="{DynamicResource HeaderBarBrush}" Padding="16,0" BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="智灵自动" Foreground="White" FontWeight="SemiBold" FontSize="16" Margin="0,0,16,0"/>
-                    <TextBlock Text="当前用户:" Foreground="#FFD1D5DB" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBlock Text="{Binding UserInfo}" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <TextBlock Text="   |   到期时间:" Foreground="#FFD1D5DB" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBlock Text="{Binding ExpireAtText}" Foreground="White" VerticalAlignment="Center"/>
-                    <TextBlock Text="   |   " Foreground="#FFD1D5DB" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding SubscriptionStatusText}" Foreground="#FFF59E0B" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="智灵自动" Foreground="{DynamicResource HeaderPrimaryTextBrush}" FontWeight="SemiBold" FontSize="16" Margin="0,0,16,0"/>
+                    <TextBlock Text="当前用户:" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding UserInfo}" Foreground="{DynamicResource HeaderPrimaryTextBrush}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="   |   到期时间:" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBlock Text="{Binding ExpireAtText}" Foreground="{DynamicResource HeaderPrimaryTextBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text="   |   " Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding SubscriptionStatusText}" Foreground="{DynamicResource AccentYellowBrush}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="刷新" Command="{Binding RefreshUserProfileCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                    <Button Content="退出登录" Command="{Binding LogoutCommand}" Padding="12,6"/>
+                    <Button Content="刷新" Command="{Binding RefreshUserProfileCommand}" Style="{DynamicResource AppSecondaryButton}" Margin="0,0,8,0"/>
+                    <Button Content="退出登录" Command="{Binding LogoutCommand}" Style="{DynamicResource AppSecondaryButton}"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -39,18 +40,19 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="#FF111827" Padding="12">
+            <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}" Padding="12" BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="0,0,1,0">
                 <StackPanel>
-                    <TextBlock Text="功能菜单" Foreground="#FF9CA3AF" Margin="8,8,8,14"/>
-                    <Button Content="兑换" Command="{Binding GoExchangeCommand}" Margin="0,0,0,8" Padding="12,10"/>
-                    <Button Content="提现" Command="{Binding GoWithdrawCommand}" Margin="0,0,0,8" Padding="12,10"/>
-                    <Button Content="提现详情" Command="{Binding GoWithdrawDetailCommand}" Margin="0,0,0,8" Padding="12,10"/>
-                    <Button Content="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Margin="0,0,0,8" Padding="12,10" Click="Button_Click"/>
-                    <Button Content="设置" Command="{Binding GoSettingsCommand}" Margin="0,0,0,8" Padding="12,10"/>
+                    <TextBlock Text="功能菜单" Foreground="{DynamicResource TextSecondaryBrush}" Margin="8,8,8,14"/>
+                    <Button Content="兑换" Tag="兑换" Command="{Binding GoExchangeCommand}" Style="{DynamicResource SidebarNavButtonStyle}"/>
+                    <Button Content="提现" Tag="提现" Command="{Binding GoWithdrawCommand}" Style="{DynamicResource SidebarNavButtonStyle}"/>
+                    <Button Content="提现详情" Tag="提现详情" Command="{Binding GoWithdrawDetailCommand}" Style="{DynamicResource SidebarNavButtonStyle}"/>
+                    <Button Content="提现记录" Tag="提现记录" Command="{Binding GoWithdrawRecordsCommand}" Style="{DynamicResource SidebarNavButtonStyle}" Click="Button_Click"/>
+                    <Button Content="设置" Tag="设置" Command="{Binding GoSettingsCommand}" Style="{DynamicResource SidebarNavButtonStyle}"/>
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="1" Margin="12" Background="White" CornerRadius="8" Padding="16">
+            <Border Grid.Column="1" Margin="12" Background="{DynamicResource SurfaceCardBrush}" BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1" CornerRadius="8" Padding="16"
+                    TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -81,21 +83,15 @@
                                 <TextBlock Text="当前无提现记录"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
-                                           Foreground="#FF6B7280"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            FontSize="15"
                                            Visibility="{Binding IsWithdrawDetailEmpty, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <Border BorderBrush="#FF707070" BorderThickness="1"
+                                <Border BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1"
                                         Visibility="{Binding IsWithdrawDetailEmpty, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
                                 <DataGrid ItemsSource="{Binding WithdrawDetailItems}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                                          GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36">
+                                          GridLinesVisibility="Horizontal" BorderThickness="0" FontSize="14" RowHeight="36">
                                     <DataGrid.Resources>
-                                        <Style TargetType="DataGridColumnHeader">
-                                            <Setter Property="Background" Value="#FF15A8E9"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                            <Setter Property="FontWeight" Value="SemiBold"/>
-                                            <Setter Property="Height" Value="36"/>
-                                            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                                        </Style>
+                                        <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource AppDataGridColumnHeaderStyle}"/>
                                     </DataGrid.Resources>
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="序号" Binding="{Binding RowIndex}" Width="56" IsReadOnly="True">
@@ -115,13 +111,13 @@
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="HorizontalAlignment" Value="Center"/>
                                                     <Setter Property="FontWeight" Value="SemiBold"/>
-                                                    <Setter Property="Foreground" Value="#FF374151"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding Status}" Value="成功">
-                                                            <Setter Property="Foreground" Value="#FF059669"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource SuccessTextBrush}"/>
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding Status}" Value="失败">
-                                                            <Setter Property="Foreground" Value="#FFDC2626"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource FailTextBrush}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -147,22 +143,22 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal">
-                                        <Button Content="仅提现" Command="{Binding StartWithdrawOnlyCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                        <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                        <Button Content="仅提现" Command="{Binding StartWithdrawOnlyCommand}" Style="{DynamicResource AppPrimaryButton}" Margin="0,0,8,0" ToolTip="【讯币】必须大于0"/>
+                                        <Button Content="停止" Command="{Binding StopCommand}" Style="{DynamicResource AppDangerButton}" Margin="0,0,8,0"/>
                                         <Button Content="清空"
                                                 Command="{Binding ClearWithdrawLogCommand}"
-                                                Padding="12,6"
+                                                Style="{DynamicResource AppSecondaryButton}"
                                                 Margin="0,0,8,0"
                                                 Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                         <Button Content="日志"
                                                 Command="{Binding OpenWithdrawLogCommand}"
-                                                Padding="12,6"
+                                                Style="{DynamicResource AppSecondaryButton}"
                                                 Margin="0,0,8,0"
                                                 Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                        <Button Content="兑换并提现" Command="{Binding StartWithdrawCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                        <TextBlock Text="提现收益大于"
+                                        <Button Content="兑换并提现" Command="{Binding StartWithdrawCommand}" Style="{DynamicResource AppPrimaryButton}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="处理数据：【提现收益】大于"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,10,0"
@@ -183,7 +179,7 @@
                                     </StackPanel>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                                    <TextBlock Text="提现目标" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0"
+                                    <TextBlock Text="提现目标ID" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0"
                                                ToolTip="辅助表格「选择」列序号，与运行日志中的 rowID 一致；填 0 表示不限制，处理全部可执行账号。"/>
                                     <TextBox Width="56" MinHeight="22" VerticalAlignment="Center" VerticalContentAlignment="Center" Padding="6,4" Margin="0,0,16,0"
                                              Text="{Binding WithdrawTargetSelectRowIdText, UpdateSourceTrigger=PropertyChanged}"
@@ -210,7 +206,7 @@
                                        Text="{Binding WithdrawProgressHintText}"
                                        TextWrapping="Wrap"
                                        FontSize="13"
-                                       Foreground="#FF374151"/>
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </Grid>
 
                         <Grid Visibility="{Binding IsExchangePage, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -226,21 +222,21 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Button Content="兑换" Command="{Binding StartExchangeScoreCommand}" Padding="12,6" Margin="0,0,8,0"/>
-                                    <Button Content="停止" Command="{Binding StopCommand}" Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="兑换" Command="{Binding StartExchangeScoreCommand}" Style="{DynamicResource AppPrimaryButton}" Margin="0,0,8,0"/>
+                                    <Button Content="停止" Command="{Binding StopCommand}" Style="{DynamicResource AppDangerButton}" Margin="0,0,8,0"/>
                                     <Button Content="清空"
                                             Command="{Binding ClearExchangeLogCommand}"
-                                            Padding="12,6"
+                                            Style="{DynamicResource AppSecondaryButton}"
                                             Margin="0,0,8,0"
                                             Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     <Button Content="日志"
                                             Command="{Binding OpenExchangeLogCommand}"
-                                            Padding="12,6"
+                                            Style="{DynamicResource AppSecondaryButton}"
                                             Margin="0,0,8,0"
                                             Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                                    <TextBlock Text="提现收益大于" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="处理数据：【提现收益】大于" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <ComboBox Width="132"
                                               MinHeight="22"
                                               VerticalAlignment="Center"
@@ -275,7 +271,7 @@
                                        Text="{Binding ExchangeProgressHintText}"
                                        TextWrapping="Wrap"
                                        FontSize="13"
-                                       Foreground="#FF374151"/>
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </Grid>
 
                         <Grid Visibility="{Binding IsWithdrawRecordsPage, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -290,17 +286,11 @@
                                            FontWeight="SemiBold"
                                            VerticalAlignment="Center"/>
                             </Grid>
-                            <Border Grid.Row="1" BorderBrush="#FF707070" BorderThickness="1">
+                            <Border Grid.Row="1" BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1">
                                 <DataGrid ItemsSource="{Binding WithdrawRecords}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                                          GridLinesVisibility="All" BorderThickness="0" FontSize="14" RowHeight="36">
+                                          GridLinesVisibility="Horizontal" BorderThickness="0" FontSize="14" RowHeight="36">
                                     <DataGrid.Resources>
-                                        <Style TargetType="DataGridColumnHeader">
-                                            <Setter Property="Background" Value="#FF15A8E9"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                            <Setter Property="FontWeight" Value="SemiBold"/>
-                                            <Setter Property="Height" Value="36"/>
-                                            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                                        </Style>
+                                        <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource AppDataGridColumnHeaderStyle}"/>
                                     </DataGrid.Resources>
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="序号" Binding="{Binding RowIndex}" Width="56" IsReadOnly="True">
@@ -331,15 +321,42 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-
-                            <Button Grid.Row="0" Content="更新设置" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                    Command="{Binding UpdateClientSettingsFromServerCommand}" Padding="12,6" Margin="0,0,0,8"/>
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="界面主题"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,12,0"/>
+                                    <Button Content="暗色"
+                                            Command="{Binding SetDarkThemeCommand}"
+                                            Style="{DynamicResource AppSecondaryButton}"
+                                            Margin="0,0,8,0"/>
+                                    <Button Content="亮色"
+                                            Command="{Binding SetLightThemeCommand}"
+                                            Style="{DynamicResource AppSecondaryButton}"
+                                            Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding ThemeDisplayName}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="更新设置"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Command="{Binding UpdateClientSettingsFromServerCommand}"
+                                        Style="{DynamicResource AppSecondaryButton}"/>
+                            </Grid>
 
                             <Button Grid.Row="1" Content="打开路径" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                    Command="{Binding OpenUserSettingsFolderCommand}" Padding="12,6" Margin="0,0,0,10"
+                                    Command="{Binding OpenUserSettingsFolderCommand}" Style="{DynamicResource AppSecondaryButton}" Margin="0,0,0,10"
                                     Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                            <TextBlock Grid.Row="2" Text="设置路径" Foreground="Gray" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="设置路径" Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
                             <Grid Grid.Row="3" Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
@@ -349,7 +366,7 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="商家路径:" VerticalAlignment="Center"/>
                                 <TextBox Grid.Column="1" Text="{Binding MerchantPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,10,0" Padding="6,4"/>
-                                <Button Grid.Column="2" Content="浏览..." Command="{Binding BrowseMerchantPathCommand}" Padding="10,4"/>
+                                <Button Grid.Column="2" Content="浏览..." Command="{Binding BrowseMerchantPathCommand}" Style="{DynamicResource AppSecondaryButton}" Padding="10,4"/>
                             </Grid>
 
                             <Grid Grid.Row="4" Margin="0,0,0,12">
@@ -360,10 +377,10 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="辅助路径:" VerticalAlignment="Center"/>
                                 <TextBox Grid.Column="1" Text="{Binding HelperPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,10,0" Padding="6,4"/>
-                                <Button Grid.Column="2" Content="浏览..." Command="{Binding BrowseHelperPathCommand}" Padding="10,4"/>
+                                <Button Grid.Column="2" Content="浏览..." Command="{Binding BrowseHelperPathCommand}" Style="{DynamicResource AppSecondaryButton}" Padding="10,4"/>
                             </Grid>
 
-                            <TextBlock Grid.Row="5" Text="提现信息" Foreground="Gray" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="5" Text="提现信息" Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
                             <Grid Grid.Row="6" Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
@@ -416,23 +433,31 @@
                                             Content="👁"
                                             ToolTip="显示/隐藏密码"
                                             Click="TogglePaymentPasswordVisibility_Click"
+                                            Style="{DynamicResource AppSecondaryButton}"
                                             Padding="6,4"
                                             Margin="6,0,0,0"/>
-                                    <TextBlock Grid.Column="3" Text="(仅本地加密保存,请安心使用)" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="3" Text="(仅本地加密保存,请安心使用)" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
                                 </Grid>
                             </StackPanel>
 
                             <StackPanel Grid.Row="9" Orientation="Vertical">
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-                                    <Button Content="兑换提现设置" Command="{Binding OpenCaptureSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
-                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                    <Button Content="仅提现设置" Command="{Binding OpenWithdrawOnlySettingsCommand}" Padding="12,6" Margin="0,0,8,0"
-                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                    <Button Content="仅兑换设置" Command="{Binding OpenExchangeScoreSettingsCommand}" Padding="12,6" Margin="0,0,8,0"
-                                            Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                    <Button Content="保存" Command="{Binding SaveSettingsCommand}" Padding="12,6"/>
-                                </StackPanel>
-                                <TextBlock Text="{Binding SettingsSaveStatus}" Foreground="#FF2563EB" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Content="兑换提现设置" Command="{Binding OpenCaptureSettingsCommand}" Style="{DynamicResource AppSecondaryButton}" Margin="0,0,8,0"
+                                                Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <Button Content="仅提现设置" Command="{Binding OpenWithdrawOnlySettingsCommand}" Style="{DynamicResource AppSecondaryButton}" Margin="0,0,8,0"
+                                                Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <Button Content="仅兑换设置" Command="{Binding OpenExchangeScoreSettingsCommand}" Style="{DynamicResource AppSecondaryButton}" Margin="0,0,8,0"
+                                                Visibility="{Binding IsDebugBuild, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <Button Content="保存" Command="{Binding SaveSettingsCommand}" Style="{DynamicResource AppPrimaryButton}"/>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding SettingsSaveStatus}" Foreground="{DynamicResource InfoTextBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Grid>
                     </Grid>

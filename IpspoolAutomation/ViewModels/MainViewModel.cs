@@ -6,6 +6,7 @@ using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -52,6 +53,9 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private string _currentPage = "提现";
     [ObservableProperty] private string _windowTitle = "智灵科技";
+
+    /// <summary>与本地 ui-settings.json 中 <c>UiTheme</c> 同步；切换时更新 Application 主题字典。</summary>
+    [ObservableProperty] private AppUiTheme _themeMode = AppUiTheme.Dark;
 
     [ObservableProperty] private string _subscriptionStatusText = "未订阅服务";
     [ObservableProperty] private bool _isSubscribed;
@@ -220,6 +224,41 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshProfileOnStartup();
         // 确保设置页「打开路径」等依赖 IsDebugBuild 的绑定在 DataContext 就绪后刷新一次
         OnPropertyChanged(nameof(IsDebugBuild));
+    }
+
+    public string ThemeDisplayName => ThemeMode == AppUiTheme.Dark ? "暗色主题" : "亮色主题";
+
+    partial void OnThemeModeChanged(AppUiTheme value)
+    {
+        OnPropertyChanged(nameof(ThemeDisplayName));
+    }
+
+    [RelayCommand]
+    private void ToggleUiTheme()
+    {
+        ApplyThemeMode(ThemeMode == AppUiTheme.Dark ? AppUiTheme.Light : AppUiTheme.Dark);
+    }
+
+    [RelayCommand]
+    private void SetDarkTheme()
+    {
+        ApplyThemeMode(AppUiTheme.Dark);
+    }
+
+    [RelayCommand]
+    private void SetLightTheme()
+    {
+        ApplyThemeMode(AppUiTheme.Light);
+    }
+
+    private void ApplyThemeMode(AppUiTheme targetTheme)
+    {
+        if (ThemeMode == targetTheme)
+            return;
+
+        ThemeMode = targetTheme;
+        ThemeManager.Apply(ThemeMode);
+        PersistUiSettingsQuietly();
     }
 
     public void SetOnLogout(Action callback) => _onLogout = callback;
@@ -796,7 +835,8 @@ public sealed partial class MainViewModel : ObservableObject
         PaymentPasswordEncrypted = EncryptForLocalStorage(PaymentPassword),
         WithdrawCoinPreset = WithdrawCoinPreset,
         ExchangeCoinPreset = ExchangeCoinPreset,
-        WithdrawTargetSelectRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText)
+        WithdrawTargetSelectRowId = TryParseWithdrawTargetSelectRowId(WithdrawTargetSelectRowIdText),
+        UiTheme = ThemeMode == AppUiTheme.Light ? "Light" : "Dark"
     };
 
     private void WriteLocalUiSettingsFile()
@@ -1791,6 +1831,9 @@ public sealed partial class MainViewModel : ObservableObject
                 WithdrawCoinPreset = data.WithdrawCoinPreset!;
             if (IsValidWithdrawCoinPreset(data.ExchangeCoinPreset))
                 ExchangeCoinPreset = data.ExchangeCoinPreset!;
+            ThemeMode = string.Equals(data.UiTheme, "Light", StringComparison.OrdinalIgnoreCase)
+                ? AppUiTheme.Light
+                : AppUiTheme.Dark;
             SettingsSaveStatus = $"已加成功载配置！";
         }
         catch (Exception ex)
@@ -2153,4 +2196,8 @@ public sealed class LocalUiSettings
 
     /// <summary>提现目标：辅助表格「选择」列序号；0 表示不限制。</summary>
     public int WithdrawTargetSelectRowId { get; set; }
+
+    /// <summary>界面主题：<c>Dark</c> / <c>Light</c>。</summary>
+    [JsonPropertyName("uiTheme")]
+    public string? UiTheme { get; set; }
 }

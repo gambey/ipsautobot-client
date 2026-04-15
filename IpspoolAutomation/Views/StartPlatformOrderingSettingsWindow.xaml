@@ -5,8 +5,11 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         MinWidth="1420"
-        MinHeight="380">
-    <Grid Margin="12">
+        MinHeight="380"
+        Background="{DynamicResource AppBackgroundBrush}">
+    <Grid Margin="12"
+          Background="{DynamicResource AppBackgroundBrush}"
+          TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -16,10 +19,10 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="操作账号数量（单次执行最多处理账号数）" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBox Width="72" Text="{Binding OperationAccountCountText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
-            <Button Content="新增目标" Command="{Binding AddTargetCommand}" Padding="12,6" Margin="16,0,0,0"/>
+            <Button Content="新增目标" Command="{Binding AddTargetCommand}" Padding="12,6" Margin="16,0,0,0" Style="{DynamicResource AppSecondaryButton}"/>
         </StackPanel>
 
-        <Border Grid.Row="1" BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8">
+        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1" Padding="8">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -108,12 +111,13 @@
                                             Content="+"
                                             Padding="4,2"
                                             FontWeight="SemiBold"
+                                            Style="{DynamicResource AppSecondaryButton}"
                                             ToolTip="在该行下方插入新目标"
                                             Command="{Binding DataContext.InsertTargetBelowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                             CommandParameter="{Binding}"/>
                                     <Button Grid.Column="12"
                                             Content="删除"
-                                            Foreground="#FFDC2626"
+                                            Style="{DynamicResource AppDangerButton}"
                                             Command="{Binding DataContext.DeleteTargetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                             CommandParameter="{Binding}"/>
                                 </Grid>
@@ -125,8 +129,8 @@
         </Border>
 
         <StackPanel Grid.Row="2" Orientation="Vertical" HorizontalAlignment="Center" Margin="0,10,0,0">
-            <Button Content="确定" Command="{Binding ConfirmCommand}" Padding="28,6"/>
-            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,0" Foreground="#FF2563EB" TextWrapping="Wrap"/>
+            <Button Content="确定" Command="{Binding ConfirmCommand}" Padding="28,6" Style="{DynamicResource AppPrimaryButton}"/>
+            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,0" Foreground="{DynamicResource InfoTextBrush}" TextWrapping="Wrap"/>
         </StackPanel>
     </Grid>
 </Window>

@@ -15,6 +15,8 @@ public partial class App : Application
 
     private void App_OnStartup(object sender, StartupEventArgs e)
     {
+        ThemeManager.Apply(ThemeManager.ReadSavedTheme());
+
         var config = new AppConfig();
         var baseUrl = config.ApiBaseUrl.TrimEnd('/');
         var timeout = TimeSpan.FromSeconds(config.ApiTimeoutSeconds);

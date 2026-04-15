@@ -6,11 +6,12 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- Placeholder for future styles -->
+                <ResourceDictionary Source="Themes/DarkTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
-            <local:InverseBoolConverter xmlns:local="clr-namespace:IpspoolAutomation.Converters" x:Key="InverseBoolConverter"/>
-            <local:InverseBooleanToVisibilityConverter xmlns:local="clr-namespace:IpspoolAutomation.Converters" x:Key="InverseBooleanToVisibilityConverter"/>
+            <local:NavPageSelectedConverter x:Key="NavPageSelectedConverter"/>
+            <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
+            <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
             <local:StringEqualsConverter x:Key="StringEqualsConverter"/>
         </ResourceDictionary>
     </Application.Resources>

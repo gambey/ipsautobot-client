@@ -5,8 +5,11 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         MinWidth="1420"
-        MinHeight="560">
-    <Grid Margin="12">
+        MinHeight="560"
+        Background="{DynamicResource AppBackgroundBrush}">
+    <Grid Margin="12"
+          Background="{DynamicResource AppBackgroundBrush}"
+          TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -29,9 +32,9 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <TextBlock Text="导航步骤（进入订单市场首页前）" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                <Button Content="新增导航步骤" Command="{Binding AddNavigationTargetCommand}" Padding="12,6" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                <Button Content="新增导航步骤" Command="{Binding AddNavigationTargetCommand}" Padding="12,6" HorizontalAlignment="Left" Margin="0,0,0,8" Style="{DynamicResource AppSecondaryButton}"/>
 
-                <Border BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8" Margin="0,0,0,16">
+                <Border BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,16">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -106,10 +109,10 @@
                                             <TextBox Grid.Column="8" Text="{Binding InputValue, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
                                             <TextBox Grid.Column="9" Text="{Binding DelayMs, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
                                             <TextBox Grid.Column="10" Text="{Binding Remark, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
-                                            <Button Grid.Column="11" Content="+" Padding="4,2" FontWeight="SemiBold"
+                                            <Button Grid.Column="11" Content="+" Padding="4,2" FontWeight="SemiBold" Style="{DynamicResource AppSecondaryButton}"
                                                     Command="{Binding DataContext.InsertNavigationBelowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
-                                            <Button Grid.Column="12" Content="删除" Foreground="#FFDC2626"
+                                            <Button Grid.Column="12" Content="删除" Style="{DynamicResource AppDangerButton}"
                                                     Command="{Binding DataContext.DeleteNavigationTargetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
                                         </Grid>
@@ -121,7 +124,7 @@
                 </Border>
 
                 <TextBlock Text="翻页步骤（每页采集后执行；留空则点击名称含「下一页」的按钮）" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                <Border BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8" Margin="0,0,0,16">
+                <Border BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,16">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="36"/>
@@ -159,7 +162,7 @@
                 </Border>
 
                 <TextBlock Text="上一页步骤（优先「跳转到页面」+「确定」直达；失败时按次数回退；留空则点名称含「上一页」的按钮）" FontWeight="SemiBold" Margin="0,0,0,6" TextWrapping="Wrap"/>
-                <Border BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8" Margin="0,0,0,16">
+                <Border BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,16">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="36"/>
@@ -198,12 +201,12 @@
 
                 <StackPanel Margin="0,0,0,6">
                     <TextBlock Text="可选：签约后附加步骤（占位符 {pageIndex}、{itemIndex}）" FontWeight="SemiBold"/>
-                    <TextBlock TextWrapping="Wrap" Foreground="#FF4B5563" FontSize="12" Margin="0,4,0,0"
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,4,0,0"
                                Text="关闭「签约成功！」等弹窗：新增一步 — 目标类型选「对话框」，目标文字填窗口标题中的关键字（如 迅捷云商家版），锚点类型「按钮」、锚点文字「确定」，动作「click」。若找不到对话框，可把目标文字改成更短的子串（如 迅捷云）。"/>
                 </StackPanel>
-                <Button Content="新增签约步骤" Command="{Binding AddSignTargetCommand}" Padding="12,6" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                <Button Content="新增签约步骤" Command="{Binding AddSignTargetCommand}" Padding="12,6" HorizontalAlignment="Left" Margin="0,0,0,8" Style="{DynamicResource AppSecondaryButton}"/>
 
-                <Border BorderBrush="#FFD1D5DB" BorderThickness="1" Padding="8">
+                <Border BorderBrush="{DynamicResource BorderWeakBrush}" BorderThickness="1" Padding="8">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -278,10 +281,10 @@
                                             <TextBox Grid.Column="8" Text="{Binding InputValue, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
                                             <TextBox Grid.Column="9" Text="{Binding DelayMs, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
                                             <TextBox Grid.Column="10" Text="{Binding Remark, UpdateSourceTrigger=PropertyChanged}" Margin="4,0,0,0"/>
-                                            <Button Grid.Column="11" Content="+" Padding="4,2" FontWeight="SemiBold"
+                                            <Button Grid.Column="11" Content="+" Padding="4,2" FontWeight="SemiBold" Style="{DynamicResource AppSecondaryButton}"
                                                     Command="{Binding DataContext.InsertSignBelowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
-                                            <Button Grid.Column="12" Content="删除" Foreground="#FFDC2626"
+                                            <Button Grid.Column="12" Content="删除" Style="{DynamicResource AppDangerButton}"
                                                     Command="{Binding DataContext.DeleteSignTargetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
                                         </Grid>
@@ -295,8 +298,8 @@
         </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Vertical" HorizontalAlignment="Center" Margin="0,10,0,0">
-            <Button Content="确定" Command="{Binding ConfirmCommand}" Padding="28,6"/>
-            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,0" Foreground="#FF2563EB" TextWrapping="Wrap"/>
+            <Button Content="确定" Command="{Binding ConfirmCommand}" Padding="28,6" Style="{DynamicResource AppPrimaryButton}"/>
+            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,0" Foreground="{DynamicResource InfoTextBrush}" TextWrapping="Wrap"/>
         </StackPanel>
     </Grid>
 </Window>

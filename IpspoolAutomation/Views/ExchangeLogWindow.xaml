@@ -3,20 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="兑换日志" Height="520" Width="760"
         WindowStartupLocation="CenterOwner"
-        MinHeight="360" MinWidth="560">
-    <Grid Margin="12">
+        MinHeight="360" MinWidth="560"
+        Background="{DynamicResource AppBackgroundBrush}">
+    <Grid Margin="12" Background="{DynamicResource AppBackgroundBrush}">
         <TextBox x:Name="LogTextBox"
+                 Style="{DynamicResource AppLogTextBoxStyle}"
                  Text="{Binding ExchangeLogText, Mode=OneWay}"
                  TextChanged="LogTextBox_OnTextChanged"
-                 IsReadOnly="True"
-                 TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto"
-                 HorizontalScrollBarVisibility="Auto"
-                 AcceptsReturn="True"
-                 FontFamily="Consolas"
-                 FontSize="12"
-                 BorderBrush="#FFE5E7EB"
-                 BorderThickness="1"
-                 Padding="8"/>
+                 IsReadOnly="True"/>
     </Grid>
 </Window>
